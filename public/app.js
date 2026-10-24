@@ -221,7 +221,7 @@ function srcFor(t) {
 async function open(t) {
   if (!t.from && now && now.kind === t.kind && now.id === t.id) { $('reader').hidden = false; document.body.classList.add('reading'); return; }
   stop();
-  if (!t.from) { const p = savedPos(t); if (p && p.pct > 0.02) { t = { ...t, from: [p.c, p.o], resumed: true }; } }
+  if (!t.from) { const p = savedPos(t); if (p && (p.c > 0 || p.o > 40)) { t = { ...t, from: [p.c, p.o], resumed: true }; } }
   now = t;
   $('reader').hidden = false; document.body.classList.add('reading');
   $('rText').innerHTML = '<p class="wait"><span class="spinner"></span>Opening…</p>';
@@ -301,7 +301,7 @@ async function pollAlign() {
     const a = await api(`/api/align/${t.kind}/${t.id}?voice=${voice}${t.from ? `&from=${t.from[0]}:${t.from[1]}` : ''}`).then((r) => r.json());
     if (now !== t) return;
     align = a; indexWords();
-    if (!a.complete) alignTimer = setTimeout(pollAlign, 1200);
+    if (!a.complete) alignTimer = setTimeout(pollAlign, words.length ? 1200 : 400); // quicker until the first words arrive
   } catch { alignTimer = setTimeout(pollAlign, 2500); }
 }
 
