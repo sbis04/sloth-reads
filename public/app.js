@@ -204,7 +204,8 @@ const posKey = (t) => `sr.pos.${t.kind}:${t.id}`;
 const savedPos = (t) => { try { return JSON.parse(store.get(posKey(t)) ?? 'null'); } catch { return null; } };
 let lastSave = 0;
 function savePos(force) {
-  if (!now || !lastLit || (!force && Date.now() - lastSave < 1500)) return;
+  // a finished article starts from the top next time
+  if (!now || !lastLit || audio.ended || (!force && Date.now() - lastSave < 1500)) return;
   lastSave = Date.now();
   const all = $('rText').querySelectorAll('.w');
   const idx = Array.prototype.indexOf.call(all, lastLit);
@@ -222,11 +223,15 @@ async function open(t) {
   if (!t.from && now && now.kind === t.kind && now.id === t.id) { $('reader').hidden = false; document.body.classList.add('reading'); return; }
   stop();
   if (!t.from) { const p = savedPos(t); if (p && (p.c > 0 || p.o > 40)) { t = { ...t, from: [p.c, p.o], resumed: true }; } }
+  // Same article, new starting point or voice: keep the text on screen, just restart the voice.
+  const same = $('rText').dataset.doc === `${t.kind}:${t.id}`;
   now = t;
   $('reader').hidden = false; document.body.classList.add('reading');
+  if (same) { startFrom(t); return; }
   $('rText').innerHTML = '<p class="wait"><span class="spinner"></span>Opening…</p>';
   const doc = await api(`/api/read/${t.kind}/${t.id}`).then((r) => r.json());
   if (now !== t) return;
+  $('rText').dataset.doc = `${t.kind}:${t.id}`;
   $('rTitle').textContent = doc.title;
   $('rSite').textContent = t.kind === 'brief' ? 'Morning brief' : doc.site;
   if (t.kind === 'brief') $('rMeta').textContent = 'Everything the sloth read overnight, in a minute.';
@@ -239,13 +244,22 @@ async function open(t) {
   if (it) $('rThanksLink').href = it.url;
   renderText(doc.chunks);
   $('reader').scrollTop = 0;
+  startFrom(t);
+}
+
+// Starts the voice at t.from (or the top) without touching the text that's already on screen.
+function startFrom(t) {
+  words = []; lastLit?.classList.remove('now'); lastLit = null;
   if (t.from) {
     // Everything before the starting point counts as read; bring the starting sentence into view.
     const ws = [...$('rText').querySelectorAll('.w')];
     const startAt = ws.find((w) => { const [c, o] = posOf(w); return c > t.from[0] || (c === t.from[0] && o >= t.from[1]); });
-    for (const w of ws) { if (w === startAt) break; w.classList.add('said'); w.parentElement.classList.remove('ahead'); }
-    startAt?.scrollIntoView({ block: 'center' });
+    let before = true;
+    for (const w of ws) { if (w === startAt) before = false; w.classList.toggle('said', before); if (before) w.parentElement.classList.remove('ahead'); }
+    startAt?.scrollIntoView({ block: 'center', behavior: 'smooth' });
     if (t.resumed) toast('Picking up where you left off');
+  } else {
+    $('rText').querySelectorAll('.w.said').forEach((w) => w.classList.remove('said'));
   }
   // No voice budget left and nothing cached: it's a reading view only.
   const cached = t.kind === 'brief' ? state.brief?.has_audio : state.items.find((i) => i.id === t.id)?.has_audio;
@@ -376,7 +390,8 @@ function stop({ unload = false } = {}) {
   savePos(true);
   clearTimeout(alignTimer);
   audio.pause();
-  if (unload) { audio.removeAttribute('src'); audio.load(); }
+  // Detach without load(): load() on an empty source fires a late error that would hit the next playback.
+  if (unload) audio.removeAttribute('src');
   now = null; align = null; words = []; lastLit = null;
 }
 const syncUi = () => {
