@@ -53,6 +53,8 @@ CREATE TABLE IF NOT EXISTS audio (
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+ALTER TABLE audio ADD COLUMN IF NOT EXISTS alignment JSONB;  -- word start times, for the live highlight
+
 -- Every overnight run: the sloth's pace, as a time series.
 CREATE TABLE IF NOT EXISTS runs (
   time       TIMESTAMPTZ NOT NULL DEFAULT now(),

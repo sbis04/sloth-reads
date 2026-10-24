@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { timingSafeEqual } from 'node:crypto';
 import { pool, migrate } from './db.js';
 import { addUrl, processItem, runNight, buildBrief, search } from './sloth.js';
-import { stream, PROVIDER } from './tts.js';
+import { stream, alignment, chunks, PROVIDER, voiceId } from './tts.js';
 import { MODEL } from './model.js';
 
 const BUILD = Date.now().toString(36);
@@ -34,9 +34,9 @@ app.get('/api/state', async (req, res) => {
   const [brief, items, totals, daily, runs] = await Promise.all([
     pool.query('SELECT day::text AS day, item_ids, script, read_minutes, created_at FROM briefs ORDER BY day DESC LIMIT 1'),
     pool.query(`SELECT id, url, source, title, author, site, cover, read_minutes, status, error, added_at, processed_at, summary, takeaways, verdict, reason, tags, finished_at,
-                  EXISTS (SELECT 1 FROM audio a WHERE a.key LIKE 'item:' || items.id || ':%:0') AS has_audio
+                  EXISTS (SELECT 1 FROM audio a WHERE a.key = 'item:' || items.id || ':' || $1 || ':0') AS has_audio
                 FROM items ORDER BY finished_at IS NOT NULL, CASE status WHEN 'done' THEN 0 WHEN 'queued' THEN 1 ELSE 2 END,
-                  CASE verdict WHEN 'read' THEN 0 WHEN 'skim' THEN 1 WHEN 'skip' THEN 2 ELSE 3 END, processed_at DESC NULLS LAST, added_at DESC LIMIT 200`),
+                  CASE verdict WHEN 'read' THEN 0 WHEN 'skim' THEN 1 WHEN 'skip' THEN 2 ELSE 3 END, processed_at DESC NULLS LAST, added_at DESC LIMIT 200`, [voiceId]),
     pool.query(`SELECT count(*)::int AS items, count(*) FILTER (WHERE status = 'done')::int AS done, count(*) FILTER (WHERE status = 'queued')::int AS queued,
                   coalesce(sum(read_minutes), 0)::int AS read_minutes, (SELECT coalesce(sum(minutes), 0)::float FROM saved) AS saved_minutes FROM items`),
     pool.query(`SELECT day::date::text AS day, minutes::float, events::int FROM saved_daily WHERE day > now() - INTERVAL '30 days' ORDER BY day`),
@@ -44,7 +44,7 @@ app.get('/api/state', async (req, res) => {
   ]);
   const b = brief.rows[0];
   let briefAudio = false;
-  if (b) briefAudio = (await pool.query(`SELECT 1 FROM audio WHERE key LIKE $1 LIMIT 1`, [`brief:${b.day}:%:0`])).rowCount > 0;
+  if (b) briefAudio = (await pool.query('SELECT 1 FROM audio WHERE key = $1', [`brief:${b.day}:${voiceId}:0`])).rowCount > 0;
   res.json({
     owner: isOwner(req), model: MODEL, voice: PROVIDER, brief: b ? { ...b, has_audio: briefAudio } : null,
     items: items.rows, totals: totals.rows[0], daily: daily.rows, runs: runs.rows,
@@ -82,17 +82,39 @@ app.delete('/api/items/:id', owner, async (req, res) => {
 });
 
 // Listening. Visitors replay what's already been spoken; only the owner spends voice credits on something new.
-app.get('/api/listen/brief/:day', async (req, res) => {
-  const { rows } = await pool.query('SELECT script FROM briefs WHERE day = $1', [req.params.day]);
-  if (!rows[0]) return res.status(404).json({ error: 'No brief that day' });
-  await stream(res, `brief:${req.params.day}`, rows[0].script, { allowGenerate: isOwner(req) || req.query.k === process.env.OWNER_TOKEN });
-});
-app.get('/api/listen/item/:id', async (req, res) => {
-  const { rows } = await pool.query('SELECT title, author, site, text FROM items WHERE id = $1', [req.params.id]);
-  if (!rows[0]) return res.status(404).json({ error: 'Not found' });
+// Every listenable thing has text (what's spoken) and a cache key.
+async function speakable(kind, id) {
+  if (kind === 'brief') {
+    const { rows } = await pool.query('SELECT script FROM briefs WHERE day = $1', [id]);
+    return rows[0] && { key: `brief:${id}`, text: rows[0].script, title: 'Your morning brief' };
+  }
+  const { rows } = await pool.query('SELECT title, author, site, url, cover, read_minutes, text FROM items WHERE id = $1', [id]);
   const it = rows[0];
-  const intro = `${it.title}${it.author ? `, by ${it.author}` : ''}.\n\n`;
-  await stream(res, `item:${req.params.id}`, intro + (it.text ?? ''), { allowGenerate: isOwner(req) || req.query.k === process.env.OWNER_TOKEN });
+  return it && { key: `item:${id}`, text: `${it.title}${it.author ? `, by ${it.author}` : ''}.\n\n${it.text ?? ''}`, title: it.title, author: it.author, site: it.site, url: it.url, cover: it.cover, read_minutes: it.read_minutes };
+}
+const canGenerate = (req) => isOwner(req) || (req.query.k && same(String(req.query.k), process.env.OWNER_TOKEN ?? ''));
+const KINDS = new Set(['brief', 'item']);
+
+app.get('/api/listen/:kind/:id', async (req, res) => {
+  if (!KINDS.has(req.params.kind)) return res.status(404).end();
+  const s = await speakable(req.params.kind, req.params.id);
+  if (!s) return res.status(404).json({ error: 'Not found' });
+  await stream(req, res, s.key, s.text, { allowGenerate: canGenerate(req) });
+});
+// The reader view: the exact text being spoken, in the same chunks the audio uses.
+app.get('/api/read/:kind/:id', async (req, res) => {
+  if (!KINDS.has(req.params.kind)) return res.status(404).end();
+  const s = await speakable(req.params.kind, req.params.id);
+  if (!s) return res.status(404).json({ error: 'Not found' });
+  const { text, key, ...meta } = s;
+  res.json({ ...meta, chunks: chunks(text) });
+});
+// Word timings so far (cached chunks, plus the one being spoken right now).
+app.get('/api/align/:kind/:id', async (req, res) => {
+  if (!KINDS.has(req.params.kind)) return res.status(404).end();
+  const s = await speakable(req.params.kind, req.params.id);
+  if (!s) return res.status(404).json({ error: 'Not found' });
+  res.set('cache-control', 'no-store').json(await alignment(s.key, s.text));
 });
 
 // The overnight run. DigitalOcean Functions call this on a schedule; it answers at once and works in the background.

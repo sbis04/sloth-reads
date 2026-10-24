@@ -137,7 +137,8 @@ h1, h2 { font-family: var(--serif); font-weight: 650; letter-spacing: -.015em; m
 .card-actions .grow { flex: 1; }
 .listen { display: inline-flex; gap: 6px; align-items: center; }
 .listen svg { width: 15px; height: 15px; }
-.listen:disabled { opacity: .5; cursor: not-allowed; }
+.listen:disabled { opacity: .55; cursor: not-allowed; }
+.not-voiced { font-size: 12.5px; color: var(--ink-3); }
 .spinner { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--line); border-top-color: var(--moss); animation: spin .8s linear infinite; display: inline-block; vertical-align: -2px; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .empty { text-align: center; color: var(--ink-3); padding: 40px 10px; grid-column: 1 / -1; }
@@ -164,3 +165,25 @@ h1, h2 { font-family: var(--serif); font-weight: 650; letter-spacing: -.015em; m
 .foot { max-width: 1120px; margin: 0 auto; padding: 0 clamp(16px, 4vw, 32px) 120px; display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; color: var(--ink-3); font-size: 13px; }
 .foot b { color: var(--ink-2); font-weight: 600; }
 .toast { position: fixed; left: 50%; top: 18px; transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 12px; font-size: 14px; z-index: 30; max-width: calc(100vw - 32px); box-shadow: var(--shadow); }
+
+/* reader: the article on screen, the spoken word highlighted */
+.reader { position: fixed; inset: 0; z-index: 15; background: var(--bg); overflow-y: auto; overscroll-behavior: contain; animation: rise .25s ease-out; }
+@keyframes rise { from { opacity: 0; transform: translateY(14px); } }
+.reader-top { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 8px; padding: 10px clamp(12px, 3vw, 24px); background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
+.reader-site { flex: 1; min-width: 0; font: 500 12.5px var(--mono); text-transform: uppercase; letter-spacing: .1em; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.reader-top a.ghost { text-decoration: none; color: var(--ink); }
+#rFollow[aria-pressed="true"] { background: var(--moss-soft); border-color: var(--moss); color: var(--ink); }
+.reader-body { max-width: 680px; margin: 0 auto; padding: 22px clamp(18px, 5vw, 24px) 160px; }
+.reader-cover { aspect-ratio: 2 / 1; border-radius: 16px; background: var(--sunk) center / cover no-repeat; margin-bottom: 22px; }
+.reader-cover:empty:not([style]) { display: none; }
+.reader-body h1 { font-size: clamp(26px, 4.4vw, 38px); line-height: 1.12; }
+.reader-meta { color: var(--ink-3); font-size: 14.5px; margin: 10px 0 26px; }
+#rText p { font-family: var(--serif); font-size: clamp(18px, 2.2vw, 20.5px); line-height: 1.75; margin: 0 0 1.05em; color: var(--ink-2); cursor: pointer; border-radius: 8px; transition: color .3s; }
+#rText p.ahead { color: var(--ink-3); }
+#rText p:hover { background: color-mix(in srgb, var(--moss-soft) 50%, transparent); }
+#rText .w { border-radius: 4px; transition: background .12s, color .12s; }
+#rText .w.said { color: var(--ink); }
+#rText .w.now { background: var(--moss); color: var(--moss-ink); box-shadow: 0 0 0 3px var(--moss); }
+#rText .wait { font: 500 13px var(--mono); color: var(--ink-3); display: flex; gap: 8px; align-items: center; margin: 0 0 1em; }
+body.reading { overflow: hidden; }
+.reader ~ .player { z-index: 16; }

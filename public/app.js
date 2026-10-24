@@ -112,7 +112,8 @@ function card(i) {
     </div>
     <div class="card-actions">
       <button class="ghost small listen" type="button" data-listen="${i.id}" ${canListen && i.status === 'done' ? '' : 'disabled'} title="${canListen ? 'Read the whole article to me' : 'Not read aloud yet'}">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10v4h3l5 4V6L7 10H4zm12.5 2A4.5 4.5 0 0 0 14 8v8a4.5 4.5 0 0 0 2.5-4z" fill="currentColor"/></svg>Listen</button>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10v4h3l5 4V6L7 10H4zm12.5 2A4.5 4.5 0 0 0 14 8v8a4.5 4.5 0 0 0 2.5-4z" fill="currentColor"/></svg>Read &amp; listen</button>
+      ${!canListen && i.status === 'done' ? '<span class="not-voiced">Not read aloud yet</span>' : ''}
       <span class="grow"></span>
       ${state.owner && i.status === 'failed' ? `<button class="ghost small" type="button" data-retry="${i.id}">Retry</button>` : ''}
       ${state.owner ? `<button class="ghost small" type="button" data-done="${i.id}">${i.finished_at ? 'Undo' : 'Done'}</button>` : ''}
@@ -182,37 +183,172 @@ function renderRuns() {
     <span>${r.processed} read${r.synced ? ` · ${r.synced} new from DEV` : ''}${r.failed ? ` · ${r.failed} failed` : ''}${r.briefed ? ' · wrote the brief' : ''} <small style="color:var(--ink-3)">${(r.ms / 1000).toFixed(0)} s, ${r.trigger === 'schedule' ? 'scheduled' : 'by hand'}</small></span></li>`).join('');
 }
 
-// ---------- player ----------
+// ---------- player + reader ----------
+// One <audio> element plays everything. Opening something shows the reader: the spoken text on screen,
+// each word lit up as it's said (timings come with the ElevenLabs audio and are cached with it).
 const audio = $('audio');
-let now = null;
+let now = null;            // { kind, id, title }
+let align = null;          // { chunks: [{ i, offset, words: [[t, char, len]] }], complete }
+let alignTimer = null;
+let words = [];            // flat, time-ordered: { t, el, chunk }
+let lastLit = null;
 const SPEEDS = [1, 1.25, 1.5, 1.75];
+
 function srcFor(t) {
-  const base = t.kind === 'brief' ? `/api/listen/brief/${t.id}` : `/api/listen/item/${t.id}`;
+  const base = `/api/listen/${t.kind}/${t.id}`;
   return ownerKey ? `${base}?k=${encodeURIComponent(ownerKey)}` : base;
 }
-function toggle(t) {
-  if (now && now.kind === t.kind && now.id === t.id) {
-    if (audio.paused) audio.play(); else audio.pause();
-    return;
-  }
+
+async function open(t) {
+  if (now && now.kind === t.kind && now.id === t.id) { $('reader').hidden = false; document.body.classList.add('reading'); return; }
+  stop();
   now = t;
+  $('reader').hidden = false; document.body.classList.add('reading');
+  $('rText').innerHTML = '<p class="wait"><span class="spinner"></span>Opening…</p>';
+  const doc = await api(`/api/read/${t.kind}/${t.id}`).then((r) => r.json());
+  if (now !== t) return;
+  $('rTitle').textContent = doc.title;
+  $('rSite').textContent = t.kind === 'brief' ? 'Morning brief' : doc.site;
+  $('rMeta').textContent = t.kind === 'brief' ? 'Everything the sloth read overnight, in a minute.' : [doc.author, doc.read_minutes && `${doc.read_minutes} min read, or listen`].filter(Boolean).join(' · ');
+  $('rCover').style.backgroundImage = doc.cover ? `url('${doc.cover.replace(/'/g, '%27')}')` : '';
+  $('rCover').hidden = !doc.cover;
+  $('rOpen').hidden = !doc.url; if (doc.url) $('rOpen').href = doc.url;
+  renderText(doc.chunks);
+  $('reader').scrollTop = 0;
   audio.src = srcFor(t);
   audio.playbackRate = Number(store.get('sr.speed') ?? 1);
   $('pSpeed').textContent = `${audio.playbackRate}×`;
-  audio.play().catch(() => toast('Couldn\'t start the audio'));
-  $('player').hidden = false;
-  $('pTitle').textContent = t.title;
-  $('pBar').style.width = '0'; $('briefBar').querySelector('i').style.width = '0';
+  $('player').hidden = false; $('pTitle').textContent = t.title;
+  audio.play().catch(() => toast('Tap play to start'));
+  pollAlign();
+}
+
+// Words become spans keyed by (chunk, character offset), the same coordinates the timings use.
+function renderText(chunks) {
+  const frag = document.createDocumentFragment();
+  chunks.forEach((text, ci) => {
+    let base = 0;
+    for (const para of text.split(/\n\n/)) {
+      const p = document.createElement('p');
+      p.className = 'ahead';
+      const re = /\S+|\s+/g; let m;
+      while ((m = re.exec(para))) {
+        if (/^\s+$/.test(m[0])) { p.append(m[0]); continue; }
+        const w = document.createElement('span');
+        w.className = 'w'; w.textContent = m[0];
+        w.dataset.k = `${ci}:${base + m.index}`;
+        p.append(w);
+      }
+      frag.append(p);
+      base += para.length + 2;
+    }
+  });
+  $('rText').replaceChildren(frag);
+  words = []; lastLit = null;
+}
+
+function indexWords() {
+  if (!align) return;
+  const byKey = new Map([...$('rText').querySelectorAll('.w')].map((el) => [el.dataset.k, el]));
+  words = [];
+  for (const c of align.chunks) for (const [t, ch] of c.words) {
+    const el = byKey.get(`${c.i}:${ch}`);
+    if (el) words.push({ t: c.offset + t, el });
+  }
+  words.sort((x, y) => x.t - y.t);
+}
+
+async function pollAlign() {
+  clearTimeout(alignTimer);
+  if (!now) return;
+  const t = now;
+  try {
+    const a = await fetch(`/api/align/${t.kind}/${t.id}`).then((r) => r.json());
+    if (now !== t) return;
+    align = a; indexWords();
+    if (!a.complete) alignTimer = setTimeout(pollAlign, 1200);
+  } catch { alignTimer = setTimeout(pollAlign, 2500); }
+}
+
+// Highlight the word being spoken; everything before it reads as "said".
+function tick() {
+  if (now && words.length) {
+    const t = audio.currentTime;
+    let lo = 0, hi = words.length - 1, k = -1;
+    while (lo <= hi) { const mid = (lo + hi) >> 1; if (words[mid].t <= t) { k = mid; lo = mid + 1; } else hi = mid - 1; }
+    const w = k >= 0 ? words[k].el : null;
+    if (w !== lastLit) {
+      lastLit?.classList.remove('now');
+      if (w) {
+        w.classList.add('now');
+        // mark progress: words up to here are said, their paragraph is no longer "ahead"
+        const from = lastLit ? words.findIndex((x) => x.el === lastLit) : 0;
+        for (let i = Math.max(0, from); i <= k; i++) { words[i].el.classList.add('said'); words[i].el.parentElement.classList.remove('ahead'); }
+        if ($('rFollow').getAttribute('aria-pressed') === 'true' && !$('reader').hidden) {
+          const r = w.getBoundingClientRect();
+          if (r.top < 90 || r.bottom > innerHeight * 0.62) w.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        }
+      }
+      lastLit = w;
+    }
+  }
+  if (!audio.paused) requestAnimationFrame(tick);
+}
+
+// Tap a word (or a paragraph) to jump there, once that part has been spoken and cached.
+$('rText').onclick = (e) => {
+  const p = e.target.closest('p'); if (!p) return;
+  const w = e.target.closest('.w');
+  const hit = (w && words.find((x) => x.el === w)) || words.find((x) => p.contains(x.el));
+  if (!hit) return toast('The sloth hasn\'t reached that part yet');
+  const seekable = audio.seekable.length && audio.seekable.end(audio.seekable.length - 1) >= hit.t;
+  if (!seekable) return toast('That part is still being spoken. Jumping works once it has finished.');
+  audio.currentTime = hit.t;
+  words.forEach((x) => x.el.classList.toggle('said', x.t < hit.t));
+  if (audio.paused) audio.play();
+};
+$('rFollow').onclick = () => {
+  const on = $('rFollow').getAttribute('aria-pressed') !== 'true';
+  $('rFollow').setAttribute('aria-pressed', String(on));
+  if (on && lastLit) lastLit.scrollIntoView({ block: 'center', behavior: 'smooth' });
+};
+// Scrolling by hand pauses follow-along, like a music app's lyrics view.
+$('reader').addEventListener('wheel', () => $('rFollow').setAttribute('aria-pressed', 'false'), { passive: true });
+$('reader').addEventListener('touchmove', () => $('rFollow').setAttribute('aria-pressed', 'false'), { passive: true });
+const closeReader = () => { $('reader').hidden = true; document.body.classList.remove('reading'); };
+$('rClose').onclick = closeReader;
+addEventListener('keydown', (e) => {
+  if ($('reader').hidden) return;
+  if (e.key === 'Escape') closeReader();
+  if (e.key === ' ' && e.target === document.body) { e.preventDefault(); audio.paused ? audio.play() : audio.pause(); }
+});
+
+function toggle(t) {
+  if (now && now.kind === t.kind && now.id === t.id) {
+    $('reader').hidden = false; document.body.classList.add('reading');
+    if (audio.paused) audio.play();
+    return;
+  }
+  open(t);
+}
+function stop() {
+  clearTimeout(alignTimer);
+  audio.pause(); audio.removeAttribute('src'); audio.load();
+  now = null; align = null; words = []; lastLit = null;
 }
 const syncUi = () => {
   const playing = !audio.paused;
   $('player').classList.toggle('playing', playing);
   $('briefPlay').classList.toggle('playing', playing && now?.kind === 'brief');
-  document.querySelectorAll('[data-listen]').forEach((b) => b.classList.toggle('on', playing && now?.kind === 'item' && now.id === Number(b.dataset.listen)));
+  if (playing) requestAnimationFrame(tick);
 };
 audio.onplay = audio.onpause = syncUi;
 audio.onended = () => { syncUi(); $('pBar').style.width = '100%'; };
-audio.onerror = () => { toast('That audio isn\'t available'); $('player').hidden = true; now = null; syncUi(); };
+// Clearing the source on stop fires an error a moment later; only react to errors from what's playing now.
+audio.onerror = () => {
+  if (!now || !audio.getAttribute('src') || audio.src !== new URL(srcFor(now), location.href).href) return;
+  toast('That audio isn\'t available'); $('player').hidden = true; closeReader(); stop(); syncUi();
+};
 audio.ontimeupdate = () => {
   const t = audio.currentTime;
   $('pTime').textContent = `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
@@ -227,7 +363,8 @@ $('pSpeed').onclick = () => {
   const i = (SPEEDS.indexOf(audio.playbackRate) + 1) % SPEEDS.length;
   audio.playbackRate = SPEEDS[i]; store.set('sr.speed', String(SPEEDS[i])); $('pSpeed').textContent = `${SPEEDS[i]}×`;
 };
-$('pClose').onclick = () => { audio.pause(); audio.removeAttribute('src'); audio.load(); now = null; $('player').hidden = true; syncUi(); };
+$('pTitle').onclick = () => { if (now) { $('reader').hidden = false; document.body.classList.add('reading'); } };
+$('pClose').onclick = () => { stop(); $('player').hidden = true; closeReader(); syncUi(); };
 
 // Shared from the phone's share sheet, or a bookmarklet: /?add=<url>
 const shared = qs.get('add');

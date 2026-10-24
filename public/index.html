@@ -80,6 +80,23 @@
     <a href="https://github.com/sbis04/sloth-reads">Source on GitHub</a>
   </footer>
 
+  <div class="reader" id="reader" hidden role="dialog" aria-modal="true" aria-labelledby="rTitle">
+    <div class="reader-top">
+      <button class="icon-btn" id="rClose" type="button" aria-label="Close reader">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <span class="reader-site" id="rSite"></span>
+      <button class="ghost small" id="rFollow" type="button" aria-pressed="true" title="Keep the spoken word in view">Follow along</button>
+      <a class="ghost small" id="rOpen" target="_blank" rel="noopener">Original</a>
+    </div>
+    <article class="reader-body" id="rBody">
+      <div class="reader-cover" id="rCover"></div>
+      <h1 id="rTitle"></h1>
+      <p class="reader-meta" id="rMeta"></p>
+      <div id="rText"></div>
+    </article>
+  </div>
+
   <div class="player" id="player" hidden>
     <button class="play-small" id="pPlay" type="button" aria-label="Pause">
       <svg class="i-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l10.5-6.5z" fill="currentColor"/></svg>

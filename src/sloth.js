@@ -82,7 +82,7 @@ export async function buildBrief(day = new Date().toISOString().slice(0, 10)) {
 The listener is ${READER}. Overnight you read ${items.length} things they saved, about ${items.reduce((a, x) => a + x.read_minutes, 0)} minutes of reading.
 ${list}
 
-Rules: start with a one-line good morning that says how much reading you got through. Then cover each article in one or two plain spoken sentences, starting with the ones worth reading in full; say clearly which ones they can skip. End with one short line. No lists, no markdown, no emoji, no URLs. Between 120 and 260 words.
+Rules: start with a one-line good morning that says how much reading you got through. Then cover each article in one or two plain spoken sentences, starting with the ones worth reading in full; say clearly which ones they can skip. Put the greeting, each article, and the closing line in their own short paragraphs, separated by a blank line. End with one short line. No lists, no markdown, no emoji, no URLs. Between 120 and 260 words.
 Reply with JSON only: {"script": "..."}`, { schema: BRIEF, maxTokens: 900, temperature: 0.5 });
   const script = String(r.script ?? '').trim();
   const read = items.reduce((a, x) => a + x.read_minutes, 0);
