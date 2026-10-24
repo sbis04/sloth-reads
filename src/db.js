@@ -6,6 +6,9 @@ const url = process.env.DATABASE_URL;
 const remote = /sslmode=|tsdb\.cloud/.test(url ?? '');
 // Tiger Cloud signs its certificates with its own CA; verify against it rather than skipping checks.
 const ca = /tsdb\.cloud/.test(url ?? '') ? readFileSync(new URL('../db/tiger-ca.pem', import.meta.url), 'utf8') : undefined;
+// Row ids are BIGINT; return them as numbers, not strings, so the browser can compare them.
+pg.types.setTypeParser(20, (v) => Number(v));
+
 export const pool = new pg.Pool({
   connectionString: url?.replace(/[?&]sslmode=[^&]*/, ''),
   ssl: remote ? { ca, rejectUnauthorized: true } : undefined,

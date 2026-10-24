@@ -126,7 +126,15 @@ $('items').onclick = async (e) => {
   const l = e.target.closest('[data-listen]');
   if (l) { const it = state.items.find((x) => x.id === Number(l.dataset.listen)); return toggle({ kind: 'item', id: it.id, title: it.title }); }
   const d = e.target.closest('[data-done]');
-  if (d) { await api(`/api/items/${d.dataset.done}/done`, { method: 'POST' }); return load(); }
+  if (d) {
+    // Update the card at once; the server catches up in the background.
+    const it = state.items.find((x) => x.id === Number(d.dataset.done));
+    it.finished_at = it.finished_at ? null : new Date().toISOString();
+    renderTabs(); renderItems();
+    toast(it.finished_at ? 'Marked done' : 'Back in your pile');
+    await api(`/api/items/${it.id}/done`, { method: 'POST' });
+    return load();
+  }
   const r = e.target.closest('[data-retry]');
   if (r) { await api(`/api/items/${r.dataset.retry}/retry`, { method: 'POST' }); return load(); }
 };
@@ -152,6 +160,8 @@ $('addForm').onsubmit = async (e) => {
   if ($('addForm').dataset.mode === 'key') {
     ownerKey = v; store.set('sr.owner', v);
     await load();
+    $('addUrl').value = '';
+    $('addUrl').value = '';
     if (!state.owner) { ownerKey = ''; store.set('sr.owner', null); toast('That key didn\'t work'); } else toast('Signed in');
     return;
   }
