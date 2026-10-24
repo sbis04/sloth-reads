@@ -12,8 +12,8 @@ export const PROVIDER = process.env.TTS ?? 'say';
 const EL_MODEL = process.env.ELEVENLABS_MODEL ?? 'eleven_flash_v2_5';  // the cheaper, faster model: half the credits
 // The voices you can pick from. Each has its own audio cache.
 export const VOICES = [
-  { id: 'eric', name: 'Eric', note: 'calm and smooth', el: 'cjVigY5qzO86Huf0OWal' },
   { id: 'matilda', name: 'Matilda', note: 'warm and friendly', el: 'XrExE9yKIg1WjnnlVkGX' },
+  { id: 'eric', name: 'Eric', note: 'calm and smooth', el: 'cjVigY5qzO86Huf0OWal' },
   { id: 'george', name: 'George', note: 'warm British storyteller', el: 'JBFqnCBsd6RMkjVDRZzb' },
   { id: 'lily', name: 'Lily', note: 'soft British', el: 'pFZP5JQG7iQjIQuC4Bku' },
   { id: 'brian', name: 'Brian', note: 'deep and steady', el: 'nPczCjzI2devNBz1zQrb' },

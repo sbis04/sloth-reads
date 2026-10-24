@@ -37,7 +37,7 @@ const confirmOut = () => { if (Date.now() - outArmed < 3000) return true; outArm
 
 // ---------- state ----------
 let state = null, tab = 'all', results = null;
-let voice = store.get('sr.voice') ?? 'eric';
+let voice = store.get('sr.voice') ?? 'matilda';
 const fmtMin = (m) => (m >= 90 ? `${(m / 60).toFixed(1).replace(/\.0$/, '')} h` : `${Math.round(m)} min`);
 
 async function load() {
