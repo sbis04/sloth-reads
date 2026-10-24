@@ -149,7 +149,7 @@ export async function alignment(key, text, voice = VOICES[0], from) {
 
 // Characters voiced today, across everyone (the visitor budget is measured against this).
 export async function charsToday() {
-  const { rows } = await pool.query(`SELECT coalesce(sum(chars), 0)::int AS n FROM audio WHERE voice LIKE $1 AND created_at >= date_trunc('day', now())`, [PROVIDER === 'elevenlabs' ? 'el-%' : 'say']);
+  const { rows } = await pool.query(`SELECT coalesce(sum(chars), 0)::int AS n FROM audio WHERE NOT by_owner AND voice LIKE $1 AND created_at >= date_trunc('day', now())`, [PROVIDER === 'elevenlabs' ? 'el-%' : 'say']);
   return rows[0].n;
 }
 
@@ -158,6 +158,7 @@ export async function charsToday() {
 // so a budget that runs out mid-article stops there rather than overspending.
 export async function stream(req, res, key, text, { allowGenerate, voice = VOICES[0], from }) {
   const may = typeof allowGenerate === 'function' ? allowGenerate : async () => allowGenerate;
+  const byOwner = allowGenerate === true; // the owner is passed `true`; visitors get a budget check
   const vk = voiceKey(voice);
   const segs = segments(text, from);
   const { rows } = await pool.query('SELECT key, mp3 FROM audio WHERE key LIKE $1', [`${key}:${vk}:%`]);
@@ -199,8 +200,8 @@ export async function stream(req, res, key, text, { allowGenerate, voice = VOICE
       } finally { mine.delete(g.id); }
       if (ctl.signal.aborted) break; // a half-spoken piece isn't worth keeping
       const mp3 = Buffer.concat(audio);
-      await pool.query('INSERT INTO audio (key, voice, chars, seconds, mp3, alignment) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (key) DO NOTHING',
-        [`${key}:${vk}:${g.id}`, vk, g.text.length, seconds(mp3.length), mp3, JSON.stringify(wordsFrom(g.text, starts))]);
+      await pool.query('INSERT INTO audio (key, voice, chars, seconds, mp3, alignment, by_owner) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (key) DO NOTHING',
+        [`${key}:${vk}:${g.id}`, vk, g.text.length, seconds(mp3.length), mp3, JSON.stringify(wordsFrom(g.text, starts)), byOwner]);
     }
   } finally {
     if (!mine.size) live.delete(liveKey);

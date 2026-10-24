@@ -56,6 +56,8 @@ CREATE TABLE IF NOT EXISTS audio (
 ALTER TABLE audio ADD COLUMN IF NOT EXISTS alignment JSONB;  -- word start times, for the live highlight
 -- Whose post it is: full text and voice are public only for the owner's own posts; everyone else's stay private.
 ALTER TABLE items ADD COLUMN IF NOT EXISTS author_handle TEXT;
+-- Audio the owner generated doesn't count against the visitors' daily voice budget.
+ALTER TABLE audio ADD COLUMN IF NOT EXISTS by_owner BOOLEAN NOT NULL DEFAULT true;
 
 -- Every overnight run: the sloth's pace, as a time series.
 CREATE TABLE IF NOT EXISTS runs (
