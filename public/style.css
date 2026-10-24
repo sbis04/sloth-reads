@@ -205,3 +205,17 @@ body.reading { overflow: hidden; }
 .reader-meta b { color: var(--ink-2); font-weight: 600; }
 .card-progress { height: 3px; background: var(--sunk); }
 .card-progress i { display: block; height: 100%; background: var(--moss); }
+
+/* phone player: two rows, so the title and the waveform both have room */
+@media (max-width: 560px) {
+  .player { display: grid; grid-template-columns: auto 1fr auto auto auto; grid-template-areas: "play title title title close" "play meta meta voice speed"; row-gap: 6px; column-gap: 10px; padding: 10px 10px 10px 12px; border-radius: 22px; }
+  .play-small { grid-area: play; }
+  .p-body { display: contents; }
+  .p-title { grid-area: title; align-self: center; font-size: 14.5px; }
+  .p-meta { grid-area: meta; min-width: 0; }
+  .voice-pick { grid-area: voice; }
+  #pSpeed { grid-area: speed; }
+  #pClose { grid-area: close; width: 32px; height: 32px; }
+  .voice-pick select { max-width: none; padding: 5px 10px; font-size: 13px; }
+  .p-meta .tot { display: none; }
+}

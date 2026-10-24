@@ -398,7 +398,7 @@ const clock = (t) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStar
 audio.ontimeupdate = () => {
   // While audio streams its length isn't known yet, so show just the time; once it is, show both.
   const t = audio.currentTime;
-  $('pTime').textContent = Number.isFinite(audio.duration) ? `${clock(t)} / ${clock(audio.duration)}` : clock(t);
+  $('pTime').innerHTML = Number.isFinite(audio.duration) ? `${clock(t)}<span class="tot"> / ${clock(audio.duration)}</span>` : clock(t);
 };
 
 // The waveform: the actual voice, through an analyser, drawn as rounded bars.
