@@ -21,7 +21,10 @@
    - a verdict, **worth reading, skim it, or skip it**, with one honest reason aimed at you,
    - an embedding for search.
 3. **At 6 AM it writes your morning brief**: about a minute of listening for everything it read.
-4. **Read & listen** opens any article in a clean reading view and reads it to you with ElevenLabs, **highlighting each word as it's spoken**. Tap any word to jump there.
+4. **Read & listen** opens any article in a clean reading view and reads it to you with ElevenLabs, **highlighting each word as it's spoken**, over a live voice waveform. Tap any word to jump there.
+   - **Five voices** (Matilda, Eric, George, Lily, Brian). Switching voice carries on from the same sentence.
+   - **It remembers where you stopped**, so an article resumes later from that sentence ("Resume · 40%").
+   - Every article links back to the original, and DEV posts by others end with a nudge to leave the author a ❤️, because listening here doesn't count as a view for them.
 5. **It counts the minutes you didn't spend**: a skipped article saves its whole reading time, a skimmed one all but a minute. The total and the per-day chart come straight from Tiger Data.
 
 <table>
@@ -42,10 +45,10 @@
 | **Model** | **Gemma 4** (31B on DigitalOcean serverless inference; `gemma4` on Ollama locally) reads, judges and writes the brief. **bge-m3** embeddings, the same model in both places. |
 | **DigitalOcean** | **App Platform** runs the app from **Container Registry**; **Functions** with scheduled triggers are the overnight alarm clock; **serverless inference** runs Gemma and bge-m3. |
 | **Tiger Data** | Items with **pgvector** embeddings and full-text search; `runs` and `saved` are **hypertables**; `saved_daily` is a **continuous aggregate** behind the minutes-saved chart. |
-| **ElevenLabs** | `stream/with-timestamps` returns audio and character timings together. The app streams it in paragraph-sized chunks, so audio starts in about a second, **generation stops when you stop listening**, and every chunk (with its timings) is cached so replays are free and still highlight. |
+| **ElevenLabs** | `stream/with-timestamps` returns audio and character timings together. The app streams it in paragraph-sized pieces, so audio starts in about a second, **generation stops when you stop listening**, and every piece (with its timings) is cached per voice, so replays are free and still highlight. Resuming or switching voice starts a new piece at the current sentence, which is cached too. |
 | **Front end** | Plain HTML, CSS and JS. Installable, light and dark, phone to wide desktop. |
 
-**Credits are protected.** The owner can voice anything; visitors share a small daily voice budget, checked before every chunk, and can always read.
+**Credits are protected.** The owner can voice anything; visitors share a daily voice budget (only their own listening counts), checked before every piece, and can always read.
 
 ## Run it
 
