@@ -11,8 +11,10 @@ const countWords = (t) => (t.match(/\S+/g) ?? []).length;
 // Markdown written for eyes, rewritten for ears: no code, no image syntax, no liquid tags.
 export function speakable(md) {
   return md
+    .replace(/^\uFEFF?---\s*\n[\s\S]*?\n---\s*\n/, '') // front matter (title:, published:, tags:) on older DEV posts
     .replace(/```[\s\S]*?```/g, '\n(A code sample is skipped here.)\n')
     .replace(/\{%[\s\S]*?%\}/g, '')
+    .replace(/^\s*([-*_])(\s*\1){2,}\s*$/gm, '')  // dividers (---, ***, ___)
     .replace(/<!--[\s\S]*?-->/g, '')
     .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
     .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
@@ -38,7 +40,7 @@ export async function fetchArticle(url) {
     const a = await res.json();
     const text = speakable(a.body_markdown ?? '');
     return {
-      source: 'dev', dev_id: a.id, url: a.url ?? url, title: a.title, author: a.user?.name ?? '', site: 'DEV',
+      source: 'dev', dev_id: a.id, url: a.url ?? url, title: a.title, author: a.user?.name ?? '', author_handle: a.user?.username ?? null, site: 'DEV',
       cover: a.cover_image ?? a.social_image ?? null, text, words: countWords(text),
       read_minutes: a.reading_time_minutes || minutesFor(countWords(text)),
     };
@@ -52,7 +54,7 @@ export async function fetchArticle(url) {
   if (!article?.textContent || countWords(article.textContent) < 80) throw new Error('No readable article on that page');
   const text = article.textContent.replace(/[ \t]+/g, ' ').replace(/\n\s*\n+/g, '\n\n').trim();
   return {
-    source: 'link', dev_id: null, url: res.url || url, title: article.title || meta('og:title') || url,
+    source: 'link', dev_id: null, author_handle: null, url: res.url || url, title: article.title || meta('og:title') || url,
     author: article.byline ?? '', site: meta('og:site_name') ?? new URL(res.url || url).hostname.replace(/^www\./, ''),
     cover: meta('og:image'), text, words: countWords(text), read_minutes: minutesFor(countWords(text)),
   };

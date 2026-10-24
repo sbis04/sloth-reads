@@ -43,7 +43,7 @@
         <div class="brief-body">
           <div class="brief-title">Your morning brief</div>
           <div class="brief-sub" id="briefSub"></div>
-          <div class="bar" id="briefBar"><i></i></div>
+          <canvas class="wave brief-wave" id="briefWave" aria-hidden="true"></canvas>
         </div>
         <button class="ghost small" id="transcriptBtn" type="button" aria-expanded="false">Transcript</button>
         <p class="transcript" id="transcript" hidden></p>
@@ -87,13 +87,14 @@
       </button>
       <span class="reader-site" id="rSite"></span>
       <button class="ghost small" id="rFollow" type="button" aria-pressed="true" title="Keep the spoken word in view">Follow along</button>
-      <a class="ghost small" id="rOpen" target="_blank" rel="noopener">Original</a>
+      <a class="ghost small" id="rOpen" target="_blank" rel="noopener">Original ↗</a>
     </div>
     <article class="reader-body" id="rBody">
       <div class="reader-cover" id="rCover"></div>
       <h1 id="rTitle"></h1>
       <p class="reader-meta" id="rMeta"></p>
       <div id="rText"></div>
+      <p class="reader-thanks" id="rThanks" hidden>Enjoyed it? <a id="rThanksLink" target="_blank" rel="noopener">Leave the author a ❤️ on DEV</a>. Listening here doesn't count as a view for them, so a visit helps.</p>
     </article>
   </div>
 
@@ -104,8 +105,12 @@
     </button>
     <div class="p-body">
       <div class="p-title" id="pTitle"></div>
-      <div class="p-meta"><span id="pTime">0:00</span><div class="bar"><i id="pBar"></i></div></div>
+      <div class="p-meta"><span id="pTime">0:00</span><canvas class="wave" id="pWave" aria-hidden="true"></canvas></div>
     </div>
+    <label class="voice-pick" title="Voice">
+      <span class="sr-only">Voice</span>
+      <select id="pVoice" aria-label="Voice"></select>
+    </label>
     <button class="ghost small" id="pSpeed" type="button" aria-label="Playback speed">1×</button>
     <button class="icon-btn" id="pClose" type="button" aria-label="Stop">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>

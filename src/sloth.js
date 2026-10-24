@@ -24,9 +24,9 @@ export async function addUrl(url, { source } = {}) {
   if (exists.rows[0]) return { id: exists.rows[0].id, existed: true };
   const a = await fetchArticle(clean);
   const { rows } = await pool.query(
-    `INSERT INTO items (url, source, dev_id, title, author, site, cover, read_minutes, words, text)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (url) DO UPDATE SET url = EXCLUDED.url RETURNING id`,
-    [a.url, source ?? a.source, a.dev_id, a.title, a.author, a.site, a.cover, a.read_minutes, a.words, a.text],
+    `INSERT INTO items (url, source, dev_id, title, author, author_handle, site, cover, read_minutes, words, text)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (url) DO UPDATE SET url = EXCLUDED.url RETURNING id`,
+    [a.url, source ?? a.source, a.dev_id, a.title, a.author, a.author_handle, a.site, a.cover, a.read_minutes, a.words, a.text],
   );
   return { id: rows[0].id, existed: false };
 }

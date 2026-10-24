@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { timingSafeEqual } from 'node:crypto';
 import { pool, migrate } from './db.js';
 import { addUrl, processItem, runNight, buildBrief, search } from './sloth.js';
-import { stream, alignment, chunks, charsToday, PROVIDER, voiceId } from './tts.js';
+import { stream, alignment, chunks, charsToday, PROVIDER, VOICES, pickVoice, voiceKey } from './tts.js';
 import { MODEL } from './model.js';
 
 const BUILD = Date.now().toString(36);
@@ -31,9 +31,10 @@ app.use(express.static('public', { maxAge: process.env.NODE_ENV === 'production'
 
 // Everything the page needs in one call.
 app.get('/api/state', async (req, res) => {
+  const voiceId = voiceKey(pickVoice(req.query.voice));
   const [brief, items, totals, daily, runs] = await Promise.all([
     pool.query('SELECT day::text AS day, item_ids, script, read_minutes, created_at FROM briefs ORDER BY day DESC LIMIT 1'),
-    pool.query(`SELECT id, url, source, title, author, site, cover, read_minutes, status, error, added_at, processed_at, summary, takeaways, verdict, reason, tags, finished_at,
+    pool.query(`SELECT id, url, source, title, author, author_handle, site, cover, read_minutes, status, error, added_at, processed_at, summary, takeaways, verdict, reason, tags, finished_at,
                   EXISTS (SELECT 1 FROM audio a WHERE a.key = 'item:' || items.id || ':' || $1 || ':0') AS has_audio
                 FROM items ORDER BY finished_at IS NOT NULL, CASE status WHEN 'done' THEN 0 WHEN 'queued' THEN 1 ELSE 2 END,
                   CASE verdict WHEN 'read' THEN 0 WHEN 'skim' THEN 1 WHEN 'skip' THEN 2 ELSE 3 END, processed_at DESC NULLS LAST, added_at DESC LIMIT 200`, [voiceId]),
@@ -46,8 +47,8 @@ app.get('/api/state', async (req, res) => {
   let briefAudio = false;
   if (b) briefAudio = (await pool.query('SELECT 1 FROM audio WHERE key = $1', [`brief:${b.day}:${voiceId}:0`])).rowCount > 0;
   res.json({
-    owner: isOwner(req), model: MODEL, voice: PROVIDER, voice_open: isOwner(req) || (await charsToday()) < VISITOR_DAILY_CHARS, brief: b ? { ...b, has_audio: briefAudio } : null,
-    items: items.rows, totals: totals.rows[0], daily: daily.rows, runs: runs.rows,
+    owner: isOwner(req), model: MODEL, voice: PROVIDER, voices: VOICES.map(({ id, name, note }) => ({ id, name, note })), voice_open: isOwner(req) || (await charsToday()) < VISITOR_DAILY_CHARS, brief: b ? { ...b, has_audio: briefAudio } : null,
+    items: items.rows.map((i) => ({ ...i, own: i.author_handle === OWNER_HANDLE })), totals: totals.rows[0], daily: daily.rows, runs: runs.rows,
   });
 });
 
@@ -97,16 +98,21 @@ const VISITOR_DAILY_CHARS = Number(process.env.VISITOR_DAILY_CHARS ?? 12000);
 const ownerReq = (req) => isOwner(req) || (req.query.k && same(String(req.query.k), process.env.OWNER_TOKEN ?? ''));
 const canGenerate = (req) => (ownerReq(req) ? true : async () => (await charsToday()) < VISITOR_DAILY_CHARS);
 const KINDS = new Set(['brief', 'item']);
+// Everyone can read and listen; every reader view links back to the original so the author keeps the visit.
+const OWNER_HANDLE = process.env.OWNER_DEV_USERNAME ?? 'sbis04';
+async function mayRead() { return true; }
 
 app.get('/api/listen/:kind/:id', async (req, res) => {
   if (!KINDS.has(req.params.kind)) return res.status(404).end();
+  if (!(await mayRead(req, req.params.kind, req.params.id))) return res.status(403).json({ error: 'private', message: 'Read this one on DEV' });
   const s = await speakable(req.params.kind, req.params.id);
   if (!s) return res.status(404).json({ error: 'Not found' });
-  await stream(req, res, s.key, s.text, { allowGenerate: canGenerate(req) });
+  await stream(req, res, s.key, s.text, { allowGenerate: canGenerate(req), voice: pickVoice(req.query.voice) });
 });
 // The reader view: the exact text being spoken, in the same chunks the audio uses.
 app.get('/api/read/:kind/:id', async (req, res) => {
   if (!KINDS.has(req.params.kind)) return res.status(404).end();
+  if (!(await mayRead(req, req.params.kind, req.params.id))) return res.status(403).json({ error: 'private', message: 'Read this one on DEV' });
   const s = await speakable(req.params.kind, req.params.id);
   if (!s) return res.status(404).json({ error: 'Not found' });
   const { text, key, ...meta } = s;
@@ -115,9 +121,10 @@ app.get('/api/read/:kind/:id', async (req, res) => {
 // Word timings so far (cached chunks, plus the one being spoken right now).
 app.get('/api/align/:kind/:id', async (req, res) => {
   if (!KINDS.has(req.params.kind)) return res.status(404).end();
+  if (!(await mayRead(req, req.params.kind, req.params.id))) return res.status(403).json({ error: 'private', message: 'Read this one on DEV' });
   const s = await speakable(req.params.kind, req.params.id);
   if (!s) return res.status(404).json({ error: 'Not found' });
-  res.set('cache-control', 'no-store').json(await alignment(s.key, s.text));
+  res.set('cache-control', 'no-store').json(await alignment(s.key, s.text, pickVoice(req.query.voice)));
 });
 
 // The overnight run. DigitalOcean Functions call this on a schedule; it answers at once and works in the background.

@@ -9,9 +9,19 @@ import path from 'node:path';
 import { pool } from './db.js';
 
 export const PROVIDER = process.env.TTS ?? 'say';
-const VOICE = process.env.ELEVENLABS_VOICE ?? 'cjVigY5qzO86Huf0OWal'; // "Eric"
 const EL_MODEL = process.env.ELEVENLABS_MODEL ?? 'eleven_flash_v2_5';  // the cheaper, faster model: half the credits
-export const voiceId = PROVIDER === 'elevenlabs' ? `el-${EL_MODEL}` : 'say';
+// The voices you can pick from. Each has its own audio cache.
+export const VOICES = [
+  { id: 'eric', name: 'Eric', note: 'calm and smooth', el: 'cjVigY5qzO86Huf0OWal' },
+  { id: 'matilda', name: 'Matilda', note: 'warm and friendly', el: 'XrExE9yKIg1WjnnlVkGX' },
+  { id: 'george', name: 'George', note: 'warm British storyteller', el: 'JBFqnCBsd6RMkjVDRZzb' },
+  { id: 'lily', name: 'Lily', note: 'soft British', el: 'pFZP5JQG7iQjIQuC4Bku' },
+  { id: 'brian', name: 'Brian', note: 'deep and steady', el: 'nPczCjzI2devNBz1zQrb' },
+];
+export const pickVoice = (id) => VOICES.find((v) => v.id === id) ?? VOICES[0];
+// Cache key per voice. Eric keeps the original key, so audio cached before voices existed still plays.
+export const voiceKey = (v = VOICES[0]) => (PROVIDER !== 'elevenlabs' ? 'say' : v.id === 'eric' ? `el-${EL_MODEL}` : `el-${EL_MODEL}-${v.id}`);
+export const voiceId = voiceKey();
 const CHUNK = 1800;
 const seconds = (bytes) => (bytes * 8) / 128000; // CBR 128 kbps
 
@@ -46,8 +56,8 @@ function wordsFrom(text, starts) {
 }
 
 // ElevenLabs sends JSON lines: a slice of audio plus the start time of each character in it.
-async function* elevenlabs(text, signal) {
-  const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${VOICE}/stream/with-timestamps?output_format=mp3_44100_128`, {
+async function* elevenlabs(text, signal, voice) {
+  const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voice.el}/stream/with-timestamps?output_format=mp3_44100_128`, {
     method: 'POST', signal,
     headers: { 'xi-api-key': process.env.ELEVENLABS_API_KEY, 'content-type': 'application/json' },
     body: JSON.stringify({ text, model_id: EL_MODEL, voice_settings: { stability: 0.5, similarity_boost: 0.75, style: 0.1, use_speaker_boost: true } }),
@@ -87,21 +97,22 @@ async function* macSay(text, signal) {
   } finally { await rm(dir, { recursive: true, force: true }); }
 }
 
-const synth = (text, signal) => (PROVIDER === 'elevenlabs' ? elevenlabs(text, signal) : macSay(text, signal));
+const synth = (text, signal, voice) => (PROVIDER === 'elevenlabs' ? elevenlabs(text, signal, voice) : macSay(text, signal));
 
 // Live timings for chunks still being spoken, so the page can highlight before a chunk is cached.
 const live = new Map(); // key -> Map(chunkIndex -> { words, bytes })
 
-export async function cachedChunks(key) {
-  const { rows } = await pool.query('SELECT key, seconds, alignment FROM audio WHERE key LIKE $1', [`${key}:${voiceId}:%`]);
+export async function cachedChunks(key, vk = voiceId) {
+  const { rows } = await pool.query('SELECT key, seconds, alignment FROM audio WHERE key LIKE $1', [`${key}:${vk}:%`]);
   return new Map(rows.map((r) => [Number(r.key.split(':').pop()), r]));
 }
 
 // Word timings for every chunk known so far, each with its offset in the overall audio.
-export async function alignment(key, text) {
+export async function alignment(key, text, voice = VOICES[0]) {
+  const vk = voiceKey(voice);
   const parts = chunks(text);
-  const cached = await cachedChunks(key);
-  const now = live.get(key);
+  const cached = await cachedChunks(key, vk);
+  const now = live.get(`${key}:${vk}`);
   const out = [];
   let offset = 0;
   for (let i = 0; i < parts.length; i++) {
@@ -115,17 +126,18 @@ export async function alignment(key, text) {
 
 // Characters voiced today, across everyone (the visitor budget is measured against this).
 export async function charsToday() {
-  const { rows } = await pool.query(`SELECT coalesce(sum(chars), 0)::int AS n FROM audio WHERE voice = $1 AND created_at >= date_trunc('day', now())`, [voiceId]);
+  const { rows } = await pool.query(`SELECT coalesce(sum(chars), 0)::int AS n FROM audio WHERE voice LIKE $1 AND created_at >= date_trunc('day', now())`, [PROVIDER === 'elevenlabs' ? 'el-%' : 'say']);
   return rows[0].n;
 }
 
 // Writes speech for `text` into an HTTP response. Fully cached audio is sent whole (so it can seek);
 // otherwise it streams as it's generated. `allowGenerate` is checked before every new chunk,
 // so a budget that runs out mid-article stops there rather than overspending.
-export async function stream(req, res, key, text, { allowGenerate }) {
+export async function stream(req, res, key, text, { allowGenerate, voice = VOICES[0] }) {
   const may = typeof allowGenerate === 'function' ? allowGenerate : async () => allowGenerate;
+  const vk = voiceKey(voice);
   const parts = chunks(text);
-  const { rows } = await pool.query('SELECT key, mp3 FROM audio WHERE key LIKE $1', [`${key}:${voiceId}:%`]);
+  const { rows } = await pool.query('SELECT key, mp3 FROM audio WHERE key LIKE $1', [`${key}:${vk}:%`]);
   const cached = new Map(rows.map((r) => [Number(r.key.split(':').pop()), r.mp3]));
   if (!cached.has(0) && !(await may())) return res.status(403).json({ error: 'The voice is resting until tomorrow.' });
 
@@ -134,8 +146,9 @@ export async function stream(req, res, key, text, { allowGenerate }) {
   res.set({ 'content-type': 'audio/mpeg', 'cache-control': 'no-store', 'x-chunks': String(parts.length) });
   const ctl = new AbortController();
   res.on('close', () => ctl.abort()); // the listener stopped: stop generating (and stop paying)
-  if (!live.has(key)) live.set(key, new Map());
-  const mine = live.get(key);
+  const liveKey = `${key}:${vk}`;
+  if (!live.has(liveKey)) live.set(liveKey, new Map());
+  const mine = live.get(liveKey);
   try {
     for (let i = 0; i < parts.length; i++) {
       if (ctl.signal.aborted) break;
@@ -146,7 +159,7 @@ export async function stream(req, res, key, text, { allowGenerate }) {
       const entry = { words: [], bytes: 0 };
       mine.set(i, entry);
       try {
-        for await (const p of synth(parts[i], ctl.signal)) {
+        for await (const p of synth(parts[i], ctl.signal, voice)) {
           if (p.audio.length) { audio.push(p.audio); entry.bytes += p.audio.length; if (!res.writableEnded) res.write(p.audio); }
           for (const [k, s] of p.starts) starts[k] = s;
           if (p.starts.length) entry.words = wordsFrom(parts[i], starts);
@@ -158,11 +171,11 @@ export async function stream(req, res, key, text, { allowGenerate }) {
       if (ctl.signal.aborted) break; // a half-spoken chunk isn't worth keeping
       const mp3 = Buffer.concat(audio);
       await pool.query('INSERT INTO audio (key, voice, chars, seconds, mp3, alignment) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (key) DO NOTHING',
-        [`${key}:${voiceId}:${i}`, voiceId, parts[i].length, seconds(mp3.length), mp3, JSON.stringify(wordsFrom(parts[i], starts))]);
+        [`${key}:${vk}:${i}`, vk, parts[i].length, seconds(mp3.length), mp3, JSON.stringify(wordsFrom(parts[i], starts))]);
       mine.delete(i);
     }
   } finally {
-    if (!mine.size) live.delete(key);
+    if (!mine.size) live.delete(liveKey);
     res.end();
   }
 }

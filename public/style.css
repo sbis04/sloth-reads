@@ -161,6 +161,7 @@ h1, h2 { font-family: var(--serif); font-weight: 650; letter-spacing: -.015em; m
 .p-meta .bar { flex: 1; margin: 0; background: color-mix(in srgb, var(--bg) 22%, transparent); }
 .player .ghost { background: transparent; color: var(--bg); border-color: color-mix(in srgb, var(--bg) 30%, transparent); }
 .player .icon-btn { background: transparent; color: var(--bg); border-color: transparent; }
+.player .wave { --wave: color-mix(in srgb, var(--bg) 85%, transparent); }
 
 .foot { max-width: 1120px; margin: 0 auto; padding: 0 clamp(16px, 4vw, 32px) 120px; display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; color: var(--ink-3); font-size: 13px; }
 .foot b { color: var(--ink-2); font-weight: 600; }
@@ -187,3 +188,18 @@ h1, h2 { font-family: var(--serif); font-weight: 650; letter-spacing: -.015em; m
 #rText .wait { font: 500 13px var(--mono); color: var(--ink-3); display: flex; gap: 8px; align-items: center; margin: 0 0 1em; }
 body.reading { overflow: hidden; }
 .reader ~ .player { z-index: 16; }
+
+/* live voice waveform (Web Audio analyser) */
+.wave { display: block; width: 100%; height: 26px; }
+.p-meta .wave { flex: 1; min-width: 0; height: 22px; }
+.brief-wave { margin-top: 8px; height: 30px; }
+
+.voice-pick select { appearance: none; -webkit-appearance: none; background: transparent; color: var(--bg); border: 1px solid color-mix(in srgb, var(--bg) 30%, transparent); border-radius: 999px; padding: 6px 12px; font: 500 13.5px var(--sans); cursor: pointer; max-width: 120px; }
+.voice-pick select option { color: #1f2118; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+@media (max-width: 520px) { .voice-pick select { max-width: 92px; padding: 6px 8px; } .player { gap: 8px; } }
+.reader-thanks { margin-top: 2.2em; padding: 14px 16px; border-radius: 14px; background: var(--moss-soft); color: var(--ink-2); font-size: 15px; }
+.dev-link { text-decoration: none; display: inline-flex; gap: 6px; align-items: center; color: var(--ink); }
+.reader-meta a { color: var(--moss); font-weight: 600; text-decoration: none; }
+.reader-meta a:hover { text-decoration: underline; }
+.reader-meta b { color: var(--ink-2); font-weight: 600; }

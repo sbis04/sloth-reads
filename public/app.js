@@ -37,10 +37,13 @@ const confirmOut = () => { if (Date.now() - outArmed < 3000) return true; outArm
 
 // ---------- state ----------
 let state = null, tab = 'all', results = null;
+let voice = store.get('sr.voice') ?? 'eric';
 const fmtMin = (m) => (m >= 90 ? `${(m / 60).toFixed(1).replace(/\.0$/, '')} h` : `${Math.round(m)} min`);
 
 async function load() {
-  state = await api('/api/state').then((r) => r.json());
+  state = await api(`/api/state?voice=${voice}`).then((r) => r.json());
+  if (!$('pVoice').options.length) $('pVoice').innerHTML = state.voices.map((v) => `<option value="${v.id}" title="${esc(v.note)}">${esc(v.name)}</option>`).join('');
+  $('pVoice').value = voice;
   $('ownerBtn').classList.toggle('on', state.owner);
   $('ownerBtn').title = state.owner ? 'Signed in as owner (tap twice to sign out)' : 'Owner sign in';
   const form = $('addForm');
@@ -112,6 +115,7 @@ function card(i) {
     <div class="card-actions">
       <button class="ghost small listen" type="button" data-listen="${i.id}" ${i.status === 'done' ? '' : 'disabled'} title="${canListen ? 'Open it here and read it to me' : 'Open it here (the voice is resting until tomorrow)'}">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10v4h3l5 4V6L7 10H4zm12.5 2A4.5 4.5 0 0 0 14 8v8a4.5 4.5 0 0 0 2.5-4z" fill="currentColor"/></svg>Read &amp; listen</button>
+      <a class="ghost small dev-link" href="${esc(i.url)}" target="_blank" rel="noopener" title="Open the original${i.site ? ` on ${esc(i.site)}` : ''}">Original ↗</a>
       ${!canListen && i.status === 'done' ? '<span class="not-voiced">Voice resting till tomorrow</span>' : ''}
       <span class="grow"></span>
       ${state.owner && i.status === 'failed' ? `<button class="ghost small" type="button" data-retry="${i.id}">Retry</button>` : ''}
@@ -194,8 +198,8 @@ let lastLit = null;
 const SPEEDS = [1, 1.25, 1.5, 1.75];
 
 function srcFor(t) {
-  const base = `/api/listen/${t.kind}/${t.id}`;
-  return ownerKey ? `${base}?k=${encodeURIComponent(ownerKey)}` : base;
+  const base = `/api/listen/${t.kind}/${t.id}?voice=${voice}`;
+  return ownerKey ? `${base}&k=${encodeURIComponent(ownerKey)}` : base;
 }
 
 async function open(t) {
@@ -208,10 +212,14 @@ async function open(t) {
   if (now !== t) return;
   $('rTitle').textContent = doc.title;
   $('rSite').textContent = t.kind === 'brief' ? 'Morning brief' : doc.site;
-  $('rMeta').textContent = t.kind === 'brief' ? 'Everything the sloth read overnight, in a minute.' : [doc.author, doc.read_minutes && `${doc.read_minutes} min read, or listen`].filter(Boolean).join(' · ');
+  if (t.kind === 'brief') $('rMeta').textContent = 'Everything the sloth read overnight, in a minute.';
+  else $('rMeta').innerHTML = `${doc.author ? `By <b>${esc(doc.author)}</b> on ${esc(doc.site)}` : esc(doc.site)} · ${doc.read_minutes} min read · <a href="${esc(doc.url)}" target="_blank" rel="noopener">Read the original ↗</a>`;
   $('rCover').style.backgroundImage = doc.cover ? `url('${doc.cover.replace(/'/g, '%27')}')` : '';
   $('rCover').hidden = !doc.cover;
   $('rOpen').hidden = !doc.url; if (doc.url) $('rOpen').href = doc.url;
+  const it = t.kind === 'item' ? state.items.find((i) => i.id === t.id) : null;
+  $('rThanks').hidden = !(it && it.source === 'dev' && !it.own);
+  if (it) $('rThanksLink').href = it.url;
   renderText(doc.chunks);
   $('reader').scrollTop = 0;
   // No voice budget left and nothing cached: it's a reading view only.
@@ -265,7 +273,7 @@ async function pollAlign() {
   if (!now) return;
   const t = now;
   try {
-    const a = await fetch(`/api/align/${t.kind}/${t.id}`).then((r) => r.json());
+    const a = await api(`/api/align/${t.kind}/${t.id}?voice=${voice}`).then((r) => r.json());
     if (now !== t) return;
     align = a; indexWords();
     if (!a.complete) alignTimer = setTimeout(pollAlign, 1200);
@@ -345,26 +353,78 @@ const syncUi = () => {
   if (playing) requestAnimationFrame(tick);
 };
 audio.onplay = audio.onpause = syncUi;
-audio.onended = () => { syncUi(); $('pBar').style.width = '100%'; };
+audio.onended = () => { syncUi(); };
 // Clearing the source on stop fires an error a moment later; only react to errors from what's playing now.
 audio.onerror = () => {
   if (!now || !audio.getAttribute('src') || audio.src !== new URL(srcFor(now), location.href).href) return;
   toast('The voice is resting until tomorrow, but you can read it here'); $('player').hidden = true;
   clearTimeout(alignTimer); audio.removeAttribute('src'); syncUi();
 };
+const clock = (t) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
 audio.ontimeupdate = () => {
+  // While audio streams its length isn't known yet, so show just the time; once it is, show both.
   const t = audio.currentTime;
-  $('pTime').textContent = `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
-  // Streams grow while they play, so the bar measures against what's arrived so far.
-  const d = Number.isFinite(audio.duration) ? audio.duration : (audio.buffered.length ? audio.buffered.end(audio.buffered.length - 1) : 0);
-  const pct = d ? Math.min(100, (t / d) * 100) : 0;
-  $('pBar').style.width = `${pct}%`;
-  if (now?.kind === 'brief') $('briefBar').querySelector('i').style.width = `${pct}%`;
+  $('pTime').textContent = Number.isFinite(audio.duration) ? `${clock(t)} / ${clock(audio.duration)}` : clock(t);
 };
+
+// The waveform: the actual voice, through an analyser, drawn as rounded bars.
+let actx = null, analyser = null, freq = null;
+const levels = new WeakMap(); // each canvas smooths its own bars
+function ensureAnalyser() {
+  if (actx) { if (actx.state === 'suspended') actx.resume(); return; }
+  try {
+    actx = new (window.AudioContext || window.webkitAudioContext)();
+    const src = actx.createMediaElementSource(audio);
+    analyser = actx.createAnalyser();
+    analyser.fftSize = 256; analyser.smoothingTimeConstant = 0.72;
+    src.connect(analyser); analyser.connect(actx.destination);
+    freq = new Uint8Array(analyser.frequencyBinCount);
+  } catch { actx = null; } // no Web Audio: the waveform just breathes
+}
+function drawWave(canvas, active) {
+  if (!canvas || !canvas.offsetParent) return;
+  const dpr = devicePixelRatio || 1, w = canvas.clientWidth, h = canvas.clientHeight;
+  if (canvas.width !== Math.round(w * dpr)) { canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr); }
+  const g = canvas.getContext('2d');
+  g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, w, h);
+  const n = Math.max(12, Math.floor(w / 6)), bw = Math.max(2, (w / n) * 0.55);
+  let level = levels.get(canvas);
+  if (!level || level.length !== n) { level = new Array(n).fill(0); levels.set(canvas, level); }
+  if (active && analyser && canvas.id === 'pWave') analyser.getByteFrequencyData(freq); // read once per frame
+  const color = getComputedStyle(canvas).getPropertyValue('--wave').trim() || getComputedStyle(document.documentElement).getPropertyValue('--moss');
+  g.fillStyle = color;
+  for (let i = 0; i < n; i++) {
+    // voice lives in the lower bins; mirror around the middle so it reads as a waveform
+    const k = Math.abs(i - (n - 1) / 2) / ((n - 1) / 2);
+    let v = 0;
+    // ~170 Hz to ~3.6 kHz, where speech lives (bins are ~170 Hz wide at fftSize 256)
+    if (active && analyser) v = Math.min(1, Math.pow(freq[1 + Math.floor((1 - k) * 20)] / 255, 1.6) * 1.5);
+    else if (active) v = 0.25 + 0.2 * Math.sin(performance.now() / 180 + i * 0.7);
+    level[i] += (v - level[i]) * 0.35;
+    const bh = Math.max(2.5, level[i] * h * (1 - k * 0.35));
+    const x = (i + 0.5) * (w / n) - bw / 2;
+    g.beginPath(); g.roundRect(x, (h - bh) / 2, bw, bh, bw / 2); g.fill();
+  }
+}
+(function loop() {
+  const playing = !audio.paused;
+  drawWave($('pWave'), playing);
+  drawWave($('briefWave'), playing && now?.kind === 'brief');
+  requestAnimationFrame(loop);
+})();
+audio.addEventListener('play', ensureAnalyser);
+
 $('pPlay').onclick = () => (audio.paused ? audio.play() : audio.pause());
 $('pSpeed').onclick = () => {
   const i = (SPEEDS.indexOf(audio.playbackRate) + 1) % SPEEDS.length;
   audio.playbackRate = SPEEDS[i]; store.set('sr.speed', String(SPEEDS[i])); $('pSpeed').textContent = `${SPEEDS[i]}×`;
+};
+$('pVoice').onchange = () => {
+  voice = $('pVoice').value; store.set('sr.voice', voice);
+  const v = state.voices.find((x) => x.id === voice);
+  toast(`Voice: ${v.name}, ${v.note}`);
+  if (now) { const t = now; const keepOpen = !$('reader').hidden; stop(); open(t).then(() => { if (!keepOpen) closeReader(); }); }
+  load();
 };
 $('pTitle').onclick = () => { if (now) { $('reader').hidden = false; document.body.classList.add('reading'); } };
 $('pClose').onclick = () => { stop(); $('player').hidden = true; closeReader(); syncUi(); };
