@@ -354,7 +354,7 @@ $('rFollow').onclick = () => {
 // Scrolling by hand pauses follow-along, like a music app's lyrics view.
 $('reader').addEventListener('wheel', () => $('rFollow').setAttribute('aria-pressed', 'false'), { passive: true });
 $('reader').addEventListener('touchmove', () => $('rFollow').setAttribute('aria-pressed', 'false'), { passive: true });
-const closeReader = () => { $('reader').hidden = true; document.body.classList.remove('reading'); };
+const closeReader = () => { savePos(true); $('reader').hidden = true; document.body.classList.remove('reading'); if (state) renderItems(); };
 $('rClose').onclick = closeReader;
 addEventListener('keydown', (e) => {
   if ($('reader').hidden) return;
@@ -465,7 +465,7 @@ $('pVoice').onchange = () => {
   load();
 };
 $('pTitle').onclick = () => { if (now) { $('reader').hidden = false; document.body.classList.add('reading'); } };
-$('pClose').onclick = () => { stop({ unload: true }); $('player').hidden = true; closeReader(); syncUi(); };
+$('pClose').onclick = () => { stop({ unload: true }); $('player').hidden = true; closeReader(); syncUi(); renderItems(); };
 
 // Shared from the phone's share sheet, or a bookmarklet: /?add=<url>
 const shared = qs.get('add');
