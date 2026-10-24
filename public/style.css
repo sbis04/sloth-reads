@@ -180,7 +180,7 @@ h1, h2 { font-family: var(--serif); font-weight: 650; letter-spacing: -.015em; m
 .reader-meta { color: var(--ink-3); font-size: 14.5px; margin: 10px 0 26px; }
 #rText p { font-family: var(--serif); font-size: clamp(18px, 2.2vw, 20.5px); line-height: 1.75; margin: 0 0 1.05em; color: var(--ink-2); cursor: pointer; border-radius: 8px; transition: color .3s; }
 #rText p.ahead { color: var(--ink-3); }
-#rText p:hover { background: color-mix(in srgb, var(--moss-soft) 50%, transparent); }
+@media (hover: hover) { #rText p:hover { background: color-mix(in srgb, var(--moss-soft) 50%, transparent); } }
 #rText .w { border-radius: 4px; transition: background .12s, color .12s; }
 #rText .w.said { color: var(--ink); }
 #rText .w.now { background: var(--moss); color: var(--moss-ink); box-shadow: 0 0 0 3px var(--moss); }
