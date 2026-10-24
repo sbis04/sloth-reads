@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Sloth Reads</title>
+  <meta name="description" content="Save it, sleep on it. An open model reads your read-it-later pile overnight and tells you, in a one-minute morning brief, what's worth your time.">
+  <meta property="og:title" content="Sloth Reads">
+  <meta property="og:description" content="Your read-it-later pile, read for you overnight by an open model.">
+  <meta name="theme-color" content="#f4efe4" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#151711" media="(prefers-color-scheme: dark)">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/icon-192.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500..750;1,9..144,500&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500&display=swap">
+  <link rel="stylesheet" href="/style.css?v=BUILD">
+</head>
+<body>
+  <header class="top">
+    <a class="brand" href="/"><img src="/icon.svg" alt="" width="32" height="32"><span>Sloth Reads</span></a>
+    <div class="top-right">
+      <button class="icon-btn" id="ownerBtn" type="button" aria-label="Owner sign in" title="Owner">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm-7 8a7 7 0 0 1 14 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </button>
+      <button class="icon-btn" id="themeBtn" type="button" aria-label="Switch theme">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9Z" fill="currentColor"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section class="hero" id="hero">
+      <p class="eyebrow" id="heroDate">This morning</p>
+      <h1 id="heroTitle">Save it. Sleep on it.</h1>
+      <p class="lede" id="heroLede">Overnight, an open model reads everything you saved and tells you what's worth your time.</p>
+      <div class="brief" id="briefCard" hidden>
+        <button class="play-big" id="briefPlay" type="button" aria-label="Play the morning brief">
+          <svg class="i-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l10.5-6.5z" fill="currentColor"/></svg>
+          <svg class="i-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z" fill="currentColor"/></svg>
+        </button>
+        <div class="brief-body">
+          <div class="brief-title">Your morning brief</div>
+          <div class="brief-sub" id="briefSub"></div>
+          <div class="bar" id="briefBar"><i></i></div>
+        </div>
+        <button class="ghost small" id="transcriptBtn" type="button" aria-expanded="false">Transcript</button>
+        <p class="transcript" id="transcript" hidden></p>
+      </div>
+    </section>
+
+    <section class="stats" id="stats" aria-label="Time saved"></section>
+
+    <form class="add" id="addForm" hidden>
+      <input id="addUrl" type="url" inputmode="url" placeholder="Paste a link to read later" required aria-label="Link to save">
+      <button class="primary" type="submit">Save for the sloth</button>
+    </form>
+
+    <div class="toolbar">
+      <div class="tabs" id="tabs" role="tablist"></div>
+      <form class="search" id="searchForm" role="search">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="m16 16 4.5 4.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        <input id="q" type="search" placeholder="Find that article about…" aria-label="Search your pile">
+      </form>
+    </div>
+
+    <p class="search-note" id="searchNote" hidden></p>
+    <ol class="items" id="items"></ol>
+
+    <section class="nights" id="nights" hidden>
+      <h2>The sloth's night shift</h2>
+      <p class="sub">DigitalOcean Functions wake it every hour from 1 to 6 AM. A few articles each time: slow and steady.</p>
+      <ol id="runs"></ol>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <span>Read by <b id="footModel">Gemma 4</b>, an open-weight model, on DigitalOcean. Search and history on Tiger Data. Voice by ElevenLabs.</span>
+    <a href="https://github.com/sbis04/sloth-reads">Source on GitHub</a>
+  </footer>
+
+  <div class="player" id="player" hidden>
+    <button class="play-small" id="pPlay" type="button" aria-label="Pause">
+      <svg class="i-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l10.5-6.5z" fill="currentColor"/></svg>
+      <svg class="i-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z" fill="currentColor"/></svg>
+    </button>
+    <div class="p-body">
+      <div class="p-title" id="pTitle"></div>
+      <div class="p-meta"><span id="pTime">0:00</span><div class="bar"><i id="pBar"></i></div></div>
+    </div>
+    <button class="ghost small" id="pSpeed" type="button" aria-label="Playback speed">1×</button>
+    <button class="icon-btn" id="pClose" type="button" aria-label="Stop">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    </button>
+  </div>
+  <audio id="audio" preload="none"></audio>
+  <div class="toast" id="toast" role="status" hidden></div>
+  <script src="/app.js?v=BUILD" type="module"></script>
+</body>
+</html>
