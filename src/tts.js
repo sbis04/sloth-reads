@@ -113,13 +113,21 @@ export async function alignment(key, text) {
   return { chunks: out, total: parts.length, complete: out.length === parts.length && !out.some((c) => c.partial) };
 }
 
+// Characters voiced today, across everyone (the visitor budget is measured against this).
+export async function charsToday() {
+  const { rows } = await pool.query(`SELECT coalesce(sum(chars), 0)::int AS n FROM audio WHERE voice = $1 AND created_at >= date_trunc('day', now())`, [voiceId]);
+  return rows[0].n;
+}
+
 // Writes speech for `text` into an HTTP response. Fully cached audio is sent whole (so it can seek);
-// otherwise it streams as it's generated. `allowGenerate` false means cached audio only.
+// otherwise it streams as it's generated. `allowGenerate` is checked before every new chunk,
+// so a budget that runs out mid-article stops there rather than overspending.
 export async function stream(req, res, key, text, { allowGenerate }) {
+  const may = typeof allowGenerate === 'function' ? allowGenerate : async () => allowGenerate;
   const parts = chunks(text);
   const { rows } = await pool.query('SELECT key, mp3 FROM audio WHERE key LIKE $1', [`${key}:${voiceId}:%`]);
   const cached = new Map(rows.map((r) => [Number(r.key.split(':').pop()), r.mp3]));
-  if (!allowGenerate && !cached.has(0)) return res.status(403).json({ error: 'This one hasn\'t been read aloud yet.' });
+  if (!cached.has(0) && !(await may())) return res.status(403).json({ error: 'The voice is resting until tomorrow.' });
 
   if (parts.every((_, i) => cached.has(i))) return sendWhole(req, res, Buffer.concat(parts.map((_, i) => cached.get(i))));
 
@@ -132,7 +140,7 @@ export async function stream(req, res, key, text, { allowGenerate }) {
     for (let i = 0; i < parts.length; i++) {
       if (ctl.signal.aborted) break;
       if (cached.has(i)) { res.write(cached.get(i)); continue; }
-      if (!allowGenerate) break;
+      if (!(await may())) break;
       const audio = [];
       const starts = [];
       const entry = { words: [], bytes: 0 };

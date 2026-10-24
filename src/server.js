@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { timingSafeEqual } from 'node:crypto';
 import { pool, migrate } from './db.js';
 import { addUrl, processItem, runNight, buildBrief, search } from './sloth.js';
-import { stream, alignment, chunks, PROVIDER, voiceId } from './tts.js';
+import { stream, alignment, chunks, charsToday, PROVIDER, voiceId } from './tts.js';
 import { MODEL } from './model.js';
 
 const BUILD = Date.now().toString(36);
@@ -46,7 +46,7 @@ app.get('/api/state', async (req, res) => {
   let briefAudio = false;
   if (b) briefAudio = (await pool.query('SELECT 1 FROM audio WHERE key = $1', [`brief:${b.day}:${voiceId}:0`])).rowCount > 0;
   res.json({
-    owner: isOwner(req), model: MODEL, voice: PROVIDER, brief: b ? { ...b, has_audio: briefAudio } : null,
+    owner: isOwner(req), model: MODEL, voice: PROVIDER, voice_open: isOwner(req) || (await charsToday()) < VISITOR_DAILY_CHARS, brief: b ? { ...b, has_audio: briefAudio } : null,
     items: items.rows, totals: totals.rows[0], daily: daily.rows, runs: runs.rows,
   });
 });
@@ -92,7 +92,10 @@ async function speakable(kind, id) {
   const it = rows[0];
   return it && { key: `item:${id}`, text: `${it.title}${it.author ? `, by ${it.author}` : ''}.\n\n${it.text ?? ''}`, title: it.title, author: it.author, site: it.site, url: it.url, cover: it.cover, read_minutes: it.read_minutes };
 }
-const canGenerate = (req) => isOwner(req) || (req.query.k && same(String(req.query.k), process.env.OWNER_TOKEN ?? ''));
+// The owner is unlimited. Visitors share a daily voice budget, checked before each new chunk is spoken.
+const VISITOR_DAILY_CHARS = Number(process.env.VISITOR_DAILY_CHARS ?? 12000);
+const ownerReq = (req) => isOwner(req) || (req.query.k && same(String(req.query.k), process.env.OWNER_TOKEN ?? ''));
+const canGenerate = (req) => (ownerReq(req) ? true : async () => (await charsToday()) < VISITOR_DAILY_CHARS);
 const KINDS = new Set(['brief', 'item']);
 
 app.get('/api/listen/:kind/:id', async (req, res) => {

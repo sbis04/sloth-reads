@@ -61,8 +61,7 @@ function renderHero() {
   $('heroTitle').textContent = `While you slept, the sloth read ${n} thing${n === 1 ? '' : 's'} for you.`;
   $('heroLede').textContent = `That's ${fmtMin(b.read_minutes)} of reading, down to a one-minute brief. ${t.saved_minutes ? `${fmtMin(t.saved_minutes)} of your time saved so far.` : ''}`;
   $('briefCard').hidden = false;
-  $('briefSub').textContent = b.has_audio || state.owner ? `${Math.max(1, Math.round(b.script.split(/\s+/).length / 160))} min listen · ${n} articles` : 'Not read aloud yet';
-  $('briefPlay').disabled = !(b.has_audio || state.owner);
+  $('briefSub').textContent = `${Math.max(1, Math.round(b.script.split(/\s+/).length / 160))} min listen · ${n} articles`;
   $('transcript').textContent = b.script;
 }
 $('transcriptBtn').onclick = () => {
@@ -100,7 +99,7 @@ $('tabs').onclick = (e) => { const b = e.target.closest('[data-tab]'); if (!b) r
 const VERDICT = { read: 'Worth reading', skim: 'Skim it', skip: 'Skip it', queued: 'Reading…', failed: 'Couldn\'t read' };
 function card(i) {
   const v = i.status === 'done' ? i.verdict : i.status;
-  const canListen = i.has_audio || state.owner;
+  const canListen = i.has_audio || state.owner || state.voice_open;
   return `<li class="card ${i.finished_at ? 'finished' : ''}" data-id="${i.id}">
     ${i.cover ? `<div class="card-cover" style="background-image:url('${esc(i.cover)}')"></div>` : ''}
     <div class="card-body">
@@ -111,9 +110,9 @@ function card(i) {
       ${i.takeaways?.length ? `<ul class="takeaways">${i.takeaways.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>` : ''}
     </div>
     <div class="card-actions">
-      <button class="ghost small listen" type="button" data-listen="${i.id}" ${canListen && i.status === 'done' ? '' : 'disabled'} title="${canListen ? 'Read the whole article to me' : 'Not read aloud yet'}">
+      <button class="ghost small listen" type="button" data-listen="${i.id}" ${i.status === 'done' ? '' : 'disabled'} title="${canListen ? 'Open it here and read it to me' : 'Open it here (the voice is resting until tomorrow)'}">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10v4h3l5 4V6L7 10H4zm12.5 2A4.5 4.5 0 0 0 14 8v8a4.5 4.5 0 0 0 2.5-4z" fill="currentColor"/></svg>Read &amp; listen</button>
-      ${!canListen && i.status === 'done' ? '<span class="not-voiced">Not read aloud yet</span>' : ''}
+      ${!canListen && i.status === 'done' ? '<span class="not-voiced">Voice resting till tomorrow</span>' : ''}
       <span class="grow"></span>
       ${state.owner && i.status === 'failed' ? `<button class="ghost small" type="button" data-retry="${i.id}">Retry</button>` : ''}
       ${state.owner ? `<button class="ghost small" type="button" data-done="${i.id}">${i.finished_at ? 'Undo' : 'Done'}</button>` : ''}
@@ -215,6 +214,9 @@ async function open(t) {
   $('rOpen').hidden = !doc.url; if (doc.url) $('rOpen').href = doc.url;
   renderText(doc.chunks);
   $('reader').scrollTop = 0;
+  // No voice budget left and nothing cached: it's a reading view only.
+  const cached = t.kind === 'brief' ? state.brief?.has_audio : state.items.find((i) => i.id === t.id)?.has_audio;
+  if (!state.owner && !state.voice_open && !cached) { toast('The voice is resting until tomorrow, but you can read it here'); return; }
   audio.src = srcFor(t);
   audio.playbackRate = Number(store.get('sr.speed') ?? 1);
   $('pSpeed').textContent = `${audio.playbackRate}×`;
@@ -347,7 +349,8 @@ audio.onended = () => { syncUi(); $('pBar').style.width = '100%'; };
 // Clearing the source on stop fires an error a moment later; only react to errors from what's playing now.
 audio.onerror = () => {
   if (!now || !audio.getAttribute('src') || audio.src !== new URL(srcFor(now), location.href).href) return;
-  toast('That audio isn\'t available'); $('player').hidden = true; closeReader(); stop(); syncUi();
+  toast('The voice is resting until tomorrow, but you can read it here'); $('player').hidden = true;
+  clearTimeout(alignTimer); audio.removeAttribute('src'); syncUi();
 };
 audio.ontimeupdate = () => {
   const t = audio.currentTime;
