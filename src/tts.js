@@ -99,29 +99,52 @@ async function* macSay(text, signal) {
 
 const synth = (text, signal, voice) => (PROVIDER === 'elevenlabs' ? elevenlabs(text, signal, voice) : macSay(text, signal));
 
-// Live timings for chunks still being spoken, so the page can highlight before a chunk is cached.
-const live = new Map(); // key -> Map(chunkIndex -> { words, bytes })
+// Live timings for pieces still being spoken, so the page can highlight before a piece is cached.
+const live = new Map(); // `${key}:${voice}` -> Map(segmentKey -> { words })
+
+// Back up to the start of the sentence containing `o`, so a resumed reading starts naturally.
+function sentenceStart(text, o) {
+  if (o <= 0) return 0;
+  const before = text.slice(0, o);
+  const m = [...before.matchAll(/[.!?]["')\]]*\s+|\n+/g)].pop();
+  return m ? m.index + m[0].length : 0;
+}
+
+// What gets spoken, from a starting point: the rest of chunk `c` from offset `o`, then the whole chunks after it.
+// Starting from the very beginning is the common case and uses whole-chunk cache keys.
+export function segments(text, from) {
+  const parts = chunks(text);
+  let [c, o] = from ?? [0, 0];
+  if (!(c >= 0 && c < parts.length)) { c = 0; o = 0; }
+  o = sentenceStart(parts[c], Math.max(0, Math.min(o, parts[c].length - 1)));
+  const out = [];
+  for (let i = c; i < parts.length; i++) {
+    const base = i === c ? o : 0;
+    out.push({ chunk: i, base, text: parts[i].slice(base), id: base ? `${i}@${base}` : String(i) });
+  }
+  return out;
+}
 
 export async function cachedChunks(key, vk = voiceId) {
   const { rows } = await pool.query('SELECT key, seconds, alignment FROM audio WHERE key LIKE $1', [`${key}:${vk}:%`]);
-  return new Map(rows.map((r) => [Number(r.key.split(':').pop()), r]));
+  return new Map(rows.map((r) => [r.key.split(':').pop(), r]));
 }
 
-// Word timings for every chunk known so far, each with its offset in the overall audio.
-export async function alignment(key, text, voice = VOICES[0]) {
+// Word timings for every piece known so far, each with its offset in this playback's timeline.
+export async function alignment(key, text, voice = VOICES[0], from) {
   const vk = voiceKey(voice);
-  const parts = chunks(text);
+  const segs = segments(text, from);
   const cached = await cachedChunks(key, vk);
   const now = live.get(`${key}:${vk}`);
   const out = [];
   let offset = 0;
-  for (let i = 0; i < parts.length; i++) {
-    const c = cached.get(i), l = now?.get(i);
-    if (c) { out.push({ i, offset, words: c.alignment ?? [] }); offset += c.seconds; continue; }
-    if (l) out.push({ i, offset, words: l.words, partial: true });
-    break; // later chunks can't be placed until this one's length is known
+  for (const g of segs) {
+    const c = cached.get(g.id), l = now?.get(g.id);
+    if (c) { out.push({ i: g.chunk, base: g.base, offset, words: c.alignment ?? [] }); offset += c.seconds; continue; }
+    if (l) out.push({ i: g.chunk, base: g.base, offset, words: l.words, partial: true });
+    break; // later pieces can't be placed until this one's length is known
   }
-  return { chunks: out, total: parts.length, complete: out.length === parts.length && !out.some((c) => c.partial) };
+  return { start: [segs[0].chunk, segs[0].base], chunks: out, complete: out.length === segs.length && !out.some((c) => c.partial) };
 }
 
 // Characters voiced today, across everyone (the visitor budget is measured against this).
@@ -130,53 +153,59 @@ export async function charsToday() {
   return rows[0].n;
 }
 
-// Writes speech for `text` into an HTTP response. Fully cached audio is sent whole (so it can seek);
-// otherwise it streams as it's generated. `allowGenerate` is checked before every new chunk,
+// Writes speech for `text` into an HTTP response, from a starting point. Fully cached audio is sent whole
+// (so it can seek); otherwise it streams as it's generated. `allowGenerate` is checked before every new piece,
 // so a budget that runs out mid-article stops there rather than overspending.
-export async function stream(req, res, key, text, { allowGenerate, voice = VOICES[0] }) {
+export async function stream(req, res, key, text, { allowGenerate, voice = VOICES[0], from }) {
   const may = typeof allowGenerate === 'function' ? allowGenerate : async () => allowGenerate;
   const vk = voiceKey(voice);
-  const parts = chunks(text);
+  const segs = segments(text, from);
   const { rows } = await pool.query('SELECT key, mp3 FROM audio WHERE key LIKE $1', [`${key}:${vk}:%`]);
-  const cached = new Map(rows.map((r) => [Number(r.key.split(':').pop()), r.mp3]));
-  if (!cached.has(0) && !(await may())) return res.status(403).json({ error: 'The voice is resting until tomorrow.' });
+  const cached = new Map(rows.map((r) => [r.key.split(':').pop(), r.mp3]));
+  if (!cached.has(segs[0].id) && !(await may())) return res.status(403).json({ error: 'The voice is resting until tomorrow.' });
 
-  if (parts.every((_, i) => cached.has(i))) return sendWhole(req, res, Buffer.concat(parts.map((_, i) => cached.get(i))));
+  if (segs.every((g) => cached.has(g.id))) return sendWhole(req, res, Buffer.concat(segs.map((g) => cached.get(g.id))));
 
-  res.set({ 'content-type': 'audio/mpeg', 'cache-control': 'no-store', 'x-chunks': String(parts.length) });
+  // Headers go out with the first audio, so a voice failure before any sound can still answer with an error.
+  let started = false;
+  const send = (buf) => {
+    if (!started) { res.set({ 'content-type': 'audio/mpeg', 'cache-control': 'no-store' }); started = true; }
+    if (!res.writableEnded) res.write(buf);
+  };
   const ctl = new AbortController();
   res.on('close', () => ctl.abort()); // the listener stopped: stop generating (and stop paying)
   const liveKey = `${key}:${vk}`;
   if (!live.has(liveKey)) live.set(liveKey, new Map());
   const mine = live.get(liveKey);
   try {
-    for (let i = 0; i < parts.length; i++) {
+    for (const g of segs) {
       if (ctl.signal.aborted) break;
-      if (cached.has(i)) { res.write(cached.get(i)); continue; }
+      if (cached.has(g.id)) { send(cached.get(g.id)); continue; }
       if (!(await may())) break;
       const audio = [];
       const starts = [];
-      const entry = { words: [], bytes: 0 };
-      mine.set(i, entry);
+      const entry = { words: [] };
+      mine.set(g.id, entry);
       try {
-        for await (const p of synth(parts[i], ctl.signal, voice)) {
-          if (p.audio.length) { audio.push(p.audio); entry.bytes += p.audio.length; if (!res.writableEnded) res.write(p.audio); }
-          for (const [k, s] of p.starts) starts[k] = s;
-          if (p.starts.length) entry.words = wordsFrom(parts[i], starts);
+        for await (const p of synth(g.text, ctl.signal, voice)) {
+          if (p.audio.length) { audio.push(p.audio); send(p.audio); }
+          for (const [k, t] of p.starts) starts[k] = t;
+          if (p.starts.length) entry.words = wordsFrom(g.text, starts);
         }
       } catch (err) {
-        if (!ctl.signal.aborted) console.error('tts', key, i, err.message);
+        if (!ctl.signal.aborted) console.error('tts', key, g.id, err.message);
+        if (!started) { res.status(503).json({ error: 'voice unavailable' }); return; }
         break;
-      }
-      if (ctl.signal.aborted) break; // a half-spoken chunk isn't worth keeping
+      } finally { mine.delete(g.id); }
+      if (ctl.signal.aborted) break; // a half-spoken piece isn't worth keeping
       const mp3 = Buffer.concat(audio);
       await pool.query('INSERT INTO audio (key, voice, chars, seconds, mp3, alignment) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (key) DO NOTHING',
-        [`${key}:${vk}:${i}`, vk, parts[i].length, seconds(mp3.length), mp3, JSON.stringify(wordsFrom(parts[i], starts))]);
-      mine.delete(i);
+        [`${key}:${vk}:${g.id}`, vk, g.text.length, seconds(mp3.length), mp3, JSON.stringify(wordsFrom(g.text, starts))]);
     }
   } finally {
     if (!mine.size) live.delete(liveKey);
-    res.end();
+    if (!res.headersSent) res.status(503).json({ error: 'voice unavailable' });
+    else res.end();
   }
 }
 

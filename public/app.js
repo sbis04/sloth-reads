@@ -103,6 +103,7 @@ const VERDICT = { read: 'Worth reading', skim: 'Skim it', skip: 'Skip it', queue
 function card(i) {
   const v = i.status === 'done' ? i.verdict : i.status;
   const canListen = i.has_audio || state.owner || state.voice_open;
+  const pos = savedPos({ kind: 'item', id: i.id });
   return `<li class="card ${i.finished_at ? 'finished' : ''}" data-id="${i.id}">
     ${i.cover ? `<div class="card-cover" style="background-image:url('${esc(i.cover)}')"></div>` : ''}
     <div class="card-body">
@@ -112,9 +113,10 @@ function card(i) {
       ${i.summary ? `<p class="summary">${esc(i.summary)}</p>` : i.status === 'failed' ? `<p class="summary">${esc(i.error)}</p>` : ''}
       ${i.takeaways?.length ? `<ul class="takeaways">${i.takeaways.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>` : ''}
     </div>
+    ${pos ? `<div class="card-progress"><i style="width:${Math.round(pos.pct * 100)}%"></i></div>` : ''}
     <div class="card-actions">
       <button class="ghost small listen" type="button" data-listen="${i.id}" ${i.status === 'done' ? '' : 'disabled'} title="${canListen ? 'Open it here and read it to me' : 'Open it here (the voice is resting until tomorrow)'}">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10v4h3l5 4V6L7 10H4zm12.5 2A4.5 4.5 0 0 0 14 8v8a4.5 4.5 0 0 0 2.5-4z" fill="currentColor"/></svg>Read &amp; listen</button>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10v4h3l5 4V6L7 10H4zm12.5 2A4.5 4.5 0 0 0 14 8v8a4.5 4.5 0 0 0 2.5-4z" fill="currentColor"/></svg>${pos ? `Resume · ${Math.round(pos.pct * 100)}%` : 'Read &amp; listen'}</button>
       <a class="ghost small dev-link" href="${esc(i.url)}" target="_blank" rel="noopener" title="Open the original${i.site ? ` on ${esc(i.site)}` : ''}">Original ↗</a>
       ${!canListen && i.status === 'done' ? '<span class="not-voiced">Voice resting till tomorrow</span>' : ''}
       <span class="grow"></span>
@@ -197,14 +199,29 @@ let words = [];            // flat, time-ordered: { t, el, chunk }
 let lastLit = null;
 const SPEEDS = [1, 1.25, 1.5, 1.75];
 
+// Where you got to in each article, kept in this browser: { c, o, pct }.
+const posKey = (t) => `sr.pos.${t.kind}:${t.id}`;
+const savedPos = (t) => { try { return JSON.parse(store.get(posKey(t)) ?? 'null'); } catch { return null; } };
+let lastSave = 0;
+function savePos(force) {
+  if (!now || !lastLit || (!force && Date.now() - lastSave < 1500)) return;
+  lastSave = Date.now();
+  const all = $('rText').querySelectorAll('.w');
+  const idx = Array.prototype.indexOf.call(all, lastLit);
+  const [c, o] = lastLit.dataset.k.split(':').map(Number);
+  store.set(posKey(now), JSON.stringify({ c, o, pct: all.length ? idx / all.length : 0 }));
+}
+const posOf = (el) => el.dataset.k.split(':').map(Number);
+
 function srcFor(t) {
-  const base = `/api/listen/${t.kind}/${t.id}?voice=${voice}`;
+  const base = `/api/listen/${t.kind}/${t.id}?voice=${voice}${t.from ? `&from=${t.from[0]}:${t.from[1]}` : ''}`;
   return ownerKey ? `${base}&k=${encodeURIComponent(ownerKey)}` : base;
 }
 
 async function open(t) {
-  if (now && now.kind === t.kind && now.id === t.id) { $('reader').hidden = false; document.body.classList.add('reading'); return; }
+  if (!t.from && now && now.kind === t.kind && now.id === t.id) { $('reader').hidden = false; document.body.classList.add('reading'); return; }
   stop();
+  if (!t.from) { const p = savedPos(t); if (p && p.pct > 0.02) { t = { ...t, from: [p.c, p.o], resumed: true }; } }
   now = t;
   $('reader').hidden = false; document.body.classList.add('reading');
   $('rText').innerHTML = '<p class="wait"><span class="spinner"></span>Opening…</p>';
@@ -222,6 +239,14 @@ async function open(t) {
   if (it) $('rThanksLink').href = it.url;
   renderText(doc.chunks);
   $('reader').scrollTop = 0;
+  if (t.from) {
+    // Everything before the starting point counts as read; bring the starting sentence into view.
+    const ws = [...$('rText').querySelectorAll('.w')];
+    const startAt = ws.find((w) => { const [c, o] = posOf(w); return c > t.from[0] || (c === t.from[0] && o >= t.from[1]); });
+    for (const w of ws) { if (w === startAt) break; w.classList.add('said'); w.parentElement.classList.remove('ahead'); }
+    startAt?.scrollIntoView({ block: 'center' });
+    if (t.resumed) toast('Picking up where you left off');
+  }
   // No voice budget left and nothing cached: it's a reading view only.
   const cached = t.kind === 'brief' ? state.brief?.has_audio : state.items.find((i) => i.id === t.id)?.has_audio;
   if (!state.owner && !state.voice_open && !cached) { toast('The voice is resting until tomorrow, but you can read it here'); return; }
@@ -262,7 +287,7 @@ function indexWords() {
   const byKey = new Map([...$('rText').querySelectorAll('.w')].map((el) => [el.dataset.k, el]));
   words = [];
   for (const c of align.chunks) for (const [t, ch] of c.words) {
-    const el = byKey.get(`${c.i}:${ch}`);
+    const el = byKey.get(`${c.i}:${(c.base ?? 0) + ch}`);
     if (el) words.push({ t: c.offset + t, el });
   }
   words.sort((x, y) => x.t - y.t);
@@ -273,7 +298,7 @@ async function pollAlign() {
   if (!now) return;
   const t = now;
   try {
-    const a = await api(`/api/align/${t.kind}/${t.id}?voice=${voice}`).then((r) => r.json());
+    const a = await api(`/api/align/${t.kind}/${t.id}?voice=${voice}${t.from ? `&from=${t.from[0]}:${t.from[1]}` : ''}`).then((r) => r.json());
     if (now !== t) return;
     align = a; indexWords();
     if (!a.complete) alignTimer = setTimeout(pollAlign, 1200);
@@ -300,22 +325,26 @@ function tick() {
         }
       }
       lastLit = w;
+      savePos(false);
     }
   }
   if (!audio.paused) requestAnimationFrame(tick);
 }
 
-// Tap a word (or a paragraph) to jump there, once that part has been spoken and cached.
+// Tap a word (or a paragraph) to jump there: seek if it's already in this playback, otherwise start speaking from it.
 $('rText').onclick = (e) => {
-  const p = e.target.closest('p'); if (!p) return;
-  const w = e.target.closest('.w');
-  const hit = (w && words.find((x) => x.el === w)) || words.find((x) => p.contains(x.el));
-  if (!hit) return toast('The sloth hasn\'t reached that part yet');
-  const seekable = audio.seekable.length && audio.seekable.end(audio.seekable.length - 1) >= hit.t;
-  if (!seekable) return toast('That part is still being spoken. Jumping works once it has finished.');
-  audio.currentTime = hit.t;
-  words.forEach((x) => x.el.classList.toggle('said', x.t < hit.t));
-  if (audio.paused) audio.play();
+  const p = e.target.closest('p'); if (!p || !now) return;
+  const w = e.target.closest('.w') ?? p.querySelector('.w');
+  if (!w) return;
+  const hit = words.find((x) => x.el === w);
+  const seekable = hit && audio.seekable.length && audio.seekable.end(audio.seekable.length - 1) >= hit.t;
+  if (seekable) {
+    audio.currentTime = hit.t;
+    words.forEach((x) => x.el.classList.toggle('said', x.t < hit.t));
+    if (audio.paused) audio.play();
+    return;
+  }
+  open({ ...now, from: posOf(w), resumed: false });
 };
 $('rFollow').onclick = () => {
   const on = $('rFollow').getAttribute('aria-pressed') !== 'true';
@@ -341,9 +370,13 @@ function toggle(t) {
   }
   open(t);
 }
-function stop() {
+// `unload` empties the player (closing it). When switching to something else, setting the new source
+// replaces the old one by itself; emptying first would fire a late error that kills the new playback.
+function stop({ unload = false } = {}) {
+  savePos(true);
   clearTimeout(alignTimer);
-  audio.pause(); audio.removeAttribute('src'); audio.load();
+  audio.pause();
+  if (unload) { audio.removeAttribute('src'); audio.load(); }
   now = null; align = null; words = []; lastLit = null;
 }
 const syncUi = () => {
@@ -353,11 +386,12 @@ const syncUi = () => {
   if (playing) requestAnimationFrame(tick);
 };
 audio.onplay = audio.onpause = syncUi;
-audio.onended = () => { syncUi(); };
+audio.onended = () => { syncUi(); if (now) { store.set(posKey(now), null); load(); } };
+audio.addEventListener('pause', () => savePos(true));
 // Clearing the source on stop fires an error a moment later; only react to errors from what's playing now.
 audio.onerror = () => {
   if (!now || !audio.getAttribute('src') || audio.src !== new URL(srcFor(now), location.href).href) return;
-  toast('The voice is resting until tomorrow, but you can read it here'); $('player').hidden = true;
+  toast('The voice isn\'t available right now, but you can read it here'); $('player').hidden = true;
   clearTimeout(alignTimer); audio.removeAttribute('src'); syncUi();
 };
 const clock = (t) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
@@ -423,11 +457,15 @@ $('pVoice').onchange = () => {
   voice = $('pVoice').value; store.set('sr.voice', voice);
   const v = state.voices.find((x) => x.id === voice);
   toast(`Voice: ${v.name}, ${v.note}`);
-  if (now) { const t = now; const keepOpen = !$('reader').hidden; stop(); open(t).then(() => { if (!keepOpen) closeReader(); }); }
+  if (now) {
+    const t = { ...now, from: lastLit ? posOf(lastLit) : now.from, resumed: false };
+    const keepOpen = !$('reader').hidden;
+    open(t).then(() => { if (!keepOpen) closeReader(); });
+  }
   load();
 };
 $('pTitle').onclick = () => { if (now) { $('reader').hidden = false; document.body.classList.add('reading'); } };
-$('pClose').onclick = () => { stop(); $('player').hidden = true; closeReader(); syncUi(); };
+$('pClose').onclick = () => { stop({ unload: true }); $('player').hidden = true; closeReader(); syncUi(); };
 
 // Shared from the phone's share sheet, or a bookmarklet: /?add=<url>
 const shared = qs.get('add');

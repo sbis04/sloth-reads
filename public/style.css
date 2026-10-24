@@ -203,3 +203,5 @@ body.reading { overflow: hidden; }
 .reader-meta a { color: var(--moss); font-weight: 600; text-decoration: none; }
 .reader-meta a:hover { text-decoration: underline; }
 .reader-meta b { color: var(--ink-2); font-weight: 600; }
+.card-progress { height: 3px; background: var(--sunk); }
+.card-progress i { display: block; height: 100%; background: var(--moss); }

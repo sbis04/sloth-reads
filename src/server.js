@@ -98,6 +98,8 @@ const VISITOR_DAILY_CHARS = Number(process.env.VISITOR_DAILY_CHARS ?? 12000);
 const ownerReq = (req) => isOwner(req) || (req.query.k && same(String(req.query.k), process.env.OWNER_TOKEN ?? ''));
 const canGenerate = (req) => (ownerReq(req) ? true : async () => (await charsToday()) < VISITOR_DAILY_CHARS);
 const KINDS = new Set(['brief', 'item']);
+// `from=chunk:offset` resumes from a place in the text (a saved position, or after switching voice).
+const fromParam = (q) => { const m = /^(\d+):(\d+)$/.exec(String(q.from ?? '')); return m ? [Number(m[1]), Number(m[2])] : undefined; };
 // Everyone can read and listen; every reader view links back to the original so the author keeps the visit.
 const OWNER_HANDLE = process.env.OWNER_DEV_USERNAME ?? 'sbis04';
 async function mayRead() { return true; }
@@ -107,7 +109,7 @@ app.get('/api/listen/:kind/:id', async (req, res) => {
   if (!(await mayRead(req, req.params.kind, req.params.id))) return res.status(403).json({ error: 'private', message: 'Read this one on DEV' });
   const s = await speakable(req.params.kind, req.params.id);
   if (!s) return res.status(404).json({ error: 'Not found' });
-  await stream(req, res, s.key, s.text, { allowGenerate: canGenerate(req), voice: pickVoice(req.query.voice) });
+  await stream(req, res, s.key, s.text, { allowGenerate: canGenerate(req), voice: pickVoice(req.query.voice), from: fromParam(req.query) });
 });
 // The reader view: the exact text being spoken, in the same chunks the audio uses.
 app.get('/api/read/:kind/:id', async (req, res) => {
@@ -124,7 +126,7 @@ app.get('/api/align/:kind/:id', async (req, res) => {
   if (!(await mayRead(req, req.params.kind, req.params.id))) return res.status(403).json({ error: 'private', message: 'Read this one on DEV' });
   const s = await speakable(req.params.kind, req.params.id);
   if (!s) return res.status(404).json({ error: 'Not found' });
-  res.set('cache-control', 'no-store').json(await alignment(s.key, s.text, pickVoice(req.query.voice)));
+  res.set('cache-control', 'no-store').json(await alignment(s.key, s.text, pickVoice(req.query.voice), fromParam(req.query)));
 });
 
 // The overnight run. DigitalOcean Functions call this on a schedule; it answers at once and works in the background.
