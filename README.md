@@ -8,8 +8,10 @@
 </p>
 
 <p align="center">
-  <a href="https://slothreads.souvikbiswas.com"><b>Live: slothreads.souvikbiswas.com</b></a>
+  <a href="https://slothreads.souvikbiswas.com"><b>Live: slothreads.souvikbiswas.com</b></a> · <a href="docs/sloth-reads-demo.mp4">Demo video</a>
 </p>
+
+<p align="center"><a href="docs/sloth-reads-demo.mp4"><img src="docs/img/thumbnail.jpg" width="720" alt="Sloth Reads demo video"></a></p>
 
 <p align="center"><img src="docs/img/home.png" width="860" alt="Sloth Reads: the morning brief, minutes saved, and today's verdicts"></p>
 
