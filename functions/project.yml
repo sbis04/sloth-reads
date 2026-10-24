@@ -1,0 +1,26 @@
+# DigitalOcean Functions: the sloth's alarm clock. Hourly from 1 to 5 AM it reads a few articles; at 6 AM it writes the brief.
+# Times are UTC: 19:30 to 23:30 UTC is 1:00 to 5:00 AM in India (IST), and 00:30 UTC is 6:00 AM.
+environment:
+  APP_URL: ${APP_URL}
+  CRON_SECRET: ${CRON_SECRET}
+packages:
+  - name: sloth
+    functions:
+      - name: nightly
+        runtime: nodejs:18
+        web: false
+        limits:
+          timeout: 30000
+        triggers:
+          - name: read-a-few
+            sourceType: scheduler
+            sourceDetails:
+              cron: "30 19-23 * * *"
+              withBody:
+                brief: false
+          - name: morning-brief
+            sourceType: scheduler
+            sourceDetails:
+              cron: "30 0 * * *"
+              withBody:
+                brief: true

@@ -1,0 +1,29 @@
+# DigitalOcean App Platform: the Sloth Reads web app and API, built from GitHub on every push.
+name: sloth-reads
+region: nyc
+services:
+  - name: web
+    github:
+      repo: sbis04/sloth-reads
+      branch: main
+      deploy_on_push: true
+    dockerfile_path: Dockerfile
+    http_port: 8080
+    instance_count: 1
+    instance_size_slug: apps-s-1vcpu-0.5gb
+    health_check:
+      http_path: /healthz
+    envs:
+      - { key: NODE_ENV, value: production }
+      - { key: TRUST_PROXY, value: "1" }
+      - { key: MODEL_API, value: openai }
+      - { key: MODEL_URL, value: https://inference.do-ai.run/v1 }
+      - { key: MODEL_NAME, value: gemma-4-31B-it }
+      - { key: EMBED_MODEL, value: bge-m3 }
+      - { key: TTS, value: elevenlabs }
+      - { key: DATABASE_URL, type: SECRET }
+      - { key: MODEL_KEY, type: SECRET }
+      - { key: ELEVENLABS_API_KEY, type: SECRET }
+      - { key: DEV_API_KEY, type: SECRET }
+      - { key: OWNER_TOKEN, type: SECRET }
+      - { key: CRON_SECRET, type: SECRET }
