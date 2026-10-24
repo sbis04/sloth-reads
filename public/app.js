@@ -249,7 +249,8 @@ async function open(t) {
 
 // Starts the voice at t.from (or the top) without touching the text that's already on screen.
 function startFrom(t) {
-  words = []; lastLit?.classList.remove('now'); lastLit = null;
+  words = []; lastLit = null;
+  $('rText').querySelectorAll('.w.now').forEach((w) => w.classList.remove('now'));
   if (t.from) {
     // Everything before the starting point counts as read; bring the starting sentence into view.
     const ws = [...$('rText').querySelectorAll('.w')];
