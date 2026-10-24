@@ -151,15 +151,7 @@ $('addForm').onsubmit = async (e) => {
   const v = $('addUrl').value.trim();
   if ($('addForm').dataset.mode === 'key') {
     ownerKey = v; store.set('sr.owner', v);
-    await // Shared from the phone's share sheet, or a bookmarklet: /?add=<url>
-const shared = qs.get('add');
-if (shared) history.replaceState(null, '', location.pathname);
-load().then(() => {
-  if (!shared) return;
-  if (!state.owner) return toast('Sign in as the owner to save links');
-  $('addUrl').value = shared;
-  $('addForm').requestSubmit();
-});
+    await load();
     if (!state.owner) { ownerKey = ''; store.set('sr.owner', null); toast('That key didn\'t work'); } else toast('Signed in');
     return;
   }
@@ -169,15 +161,7 @@ load().then(() => {
     const d = await r.json();
     if (!r.ok) throw new Error(d.error);
     toast(d.existed ? 'Already in your pile' : 'Saved. The sloth is reading it…');
-    $('addUrl').value = ''; tab = 'all'; await // Shared from the phone's share sheet, or a bookmarklet: /?add=<url>
-const shared = qs.get('add');
-if (shared) history.replaceState(null, '', location.pathname);
-load().then(() => {
-  if (!shared) return;
-  if (!state.owner) return toast('Sign in as the owner to save links');
-  $('addUrl').value = shared;
-  $('addForm').requestSubmit();
-});
+    $('addUrl').value = ''; tab = 'all'; await load();
   } catch (err) { toast(err.message); } finally { btn.disabled = false; btn.textContent = 'Save for the sloth'; }
 };
 
