@@ -269,7 +269,8 @@ function startFrom(t) {
   audio.playbackRate = Number(store.get('sr.speed') ?? 1);
   $('pSpeed').textContent = `${audio.playbackRate}×`;
   $('player').hidden = false; $('pTitle').textContent = t.title;
-  audio.play().catch(() => toast('Tap play to start'));
+  // A play() cut short by the next source (AbortError) isn't a problem; only a real block needs a nudge.
+  audio.play().catch((e) => { if (e.name === 'NotAllowedError') toast('Tap play to start'); });
   pollAlign();
 }
 
